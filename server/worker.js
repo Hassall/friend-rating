@@ -61,8 +61,8 @@ function timeline(room, now) {
   }
 
   const revealAt = room.ratingAt + room.players.length * ROUND_MS;
-  const award = Math.floor((now - revealAt) / REVEAL_MS);
-  if (award < TRAIT_COUNT) return { phase: "reveal", award, deadline: revealAt + (award + 1) * REVEAL_MS };
+  const ranking = Math.floor((now - revealAt) / REVEAL_MS);
+  if (ranking < TRAIT_COUNT) return { phase: "reveal", ranking, deadline: revealAt + (ranking + 1) * REVEAL_MS };
   return { phase: "results" };
 }
 
@@ -74,15 +74,14 @@ function summarize(room) {
   });
 }
 
-function winnersFor(results, index) {
-  const eligible = results.filter((result) => result.votes);
-  if (!eligible.length) return [];
-  const best = eligible.reduce((winner, result) =>
-    result.totals[index] * winner.votes > winner.totals[index] * result.votes ? result : winner
-  );
-  return eligible.filter((result) =>
-    result.totals[index] * best.votes === best.totals[index] * result.votes
-  ).map((result) => result.id);
+function leadersFor(results, index) {
+  const compare = (a, b) => b.totals[index] * a.votes - a.totals[index] * b.votes;
+  const leaders = results.filter((result) => result.votes).sort(compare).slice(0, 3);
+  let rank = 1;
+  return leaders.map((result, i) => {
+    if (i > 0 && compare(leaders[i - 1], result) !== 0) rank = i + 1;
+    return { id: result.id, rank, average: result.totals[index] / result.votes };
+  });
 }
 
 function snapshot(room, member, now, revision) {
@@ -103,10 +102,10 @@ function snapshot(room, member, now, revision) {
     view.voted = Object.hasOwn(votes, member.id);
     view.voteCount = Object.keys(votes).length;
   }
-  if (time.phase === "reveal") view.winners = winnersFor(summarize(room), time.award);
+  if (time.phase === "reveal") view.leaders = leadersFor(summarize(room), time.ranking);
   if (time.phase === "results") {
     view.results = summarize(room);
-    view.awards = room.traits.map((_, index) => winnersFor(view.results, index));
+    view.rankings = room.traits.map((_, index) => leadersFor(view.results, index));
   }
   return view;
 }

@@ -3,6 +3,7 @@ import { TRAITS } from "./traits.js";
 const app = document.querySelector("#app");
 const header = document.querySelector("#header-status");
 const announcement = document.querySelector("#announcement");
+const POINT_STEP = 5;
 const PALETTE = ["#d7fa77", "#bca4ff", "#ff9bc9", "#9fe8fa", "#ffc98c", "#c9a9c0"];
 const ICONS = {
   lock: '<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 1 1 8 0v3m-4 4v3"/>',
@@ -21,7 +22,7 @@ let room = null;
 let viewKey = "";
 let chosen = new Set();
 let points = [];
-let resultId;
+let resultId = null;
 let busy = false;
 let offset = 0;
 let pollTimer;
@@ -81,7 +82,7 @@ function renderWelcome(message = "") {
     '<h1>' + (joining ? 'You’re <em>invited.</em>' : 'Rate your<br><em>friends.</em>') + '</h1>' +
     '<p class="welcome-description">' + (joining
       ? "Enter the name your friends know you by to join their room."
-      : "Pick the traits. Split 100 points. Find out who really runs the group chat.") + '</p>' +
+      : "Pick the traits that fit your crew, give out points, and see who tops the rankings.") + '</p>' +
     '<form id="entry" class="entry panel"><label for="name">Your display name</label>' +
     '<div class="entry-controls"><input id="name" name="name" maxlength="24" required autocomplete="nickname" placeholder="e.g. Mooncake">' +
     '<button class="button primary" type="submit">' + (joining ? "Join room" : "Create a room") + icon("arrow") + '</button></div>' +
@@ -94,7 +95,7 @@ function renderWelcome(message = "") {
     radar(sample, [5, 23, 9, 16, 4, 19, 5, 11, 4, 4], 25) + '</div></aside></div>' +
     '<section class="how" aria-label="How to play">' +
     [['people', "Invite your crew", "Share one private link."], ['tick', "Pick 10 traits", "The most popular picks make the cut."],
-     ['clock', "Rate each friend", "Split 100 points in 30 seconds."], ['trophy', "See who wins", "Reveal each trait’s winner."]]
+     ['clock', "Rate each friend", "Give out 100 points in 30 seconds."], ['trophy', "See the rankings", "Reveal the top three for each trait."]]
       .map(([glyph, title, line]) => '<article class="how-step"><div class="how-icon">' + icon(glyph) +
         '</div><div><h2>' + title + '</h2><p>' + line + '</p></div></article>').join("") + '</section>';
   notice(message);
@@ -203,21 +204,22 @@ function renderRating() {
     (ownRound ? "You’re in the spotlight." : "Rate " + html(target.name) + ".") + '</h1></div></div>' +
     '<div class="rating-layout"><aside class="panel rating-aside">' + avatar(target, "avatar-large") +
     '<strong class="spotlight-name">' + html(target.name) + '</strong><div class="countdown" data-clock="30"></div>' +
-    '<p class="muted">Time left</p><span class="small-pill" id="vote-count"></span></aside>' +
+    '<p class="muted">Time left</p><span class="small-pill" id="vote-count"></span>' +
+    (waiting ? "" : '<span class="mobile-budget" id="remaining-mobile"></span>') + '</aside>' +
     (waiting
       ? '<section class="panel centered round-wait"><span class="panel-icon">' + icon(ownRound ? "people" : "tick", 28) +
         '</span><h2>' + (ownRound ? "Your friends are voting" : "Vote locked in") + '</h2><p>' +
         (ownRound ? "Sit tight while the group rates you." : "The next round starts when the timer ends.") + '</p></section>'
-      : '<section class="panel point-panel"><div class="point-heading"><div><h2>Split 100 points</h2>' +
-        '<p>Give more points to the traits that fit best.</p></div><div class="point-budget"><strong id="remaining">100</strong><span>points left</span></div></div>' +
+      : '<section class="panel point-panel"><div class="point-heading"><div><h2>Rate their traits</h2>' +
+        '<p>Give out all 100 points. Use the 5-point buttons or type an exact amount.</p></div><div class="point-budget"><strong id="remaining">100</strong><span>points left</span></div></div>' +
         '<div class="budget-bar" aria-hidden="true"><span id="budget-fill"></span></div>' +
         '<div class="point-grid">' + room.traits.map((id, index) => {
           const [name, , glyph] = TRAITS[id];
           return '<div class="point-row" data-point-row="' + index + '"><label for="points-' + index + '"><span class="row-glyph" aria-hidden="true">' +
             glyph + '</span>' + name + '</label><div class="stepper">' +
-            '<button type="button" data-index="' + index + '" data-change="-5" aria-label="Remove up to 5 points from ' + name + '">−</button>' +
+            '<button type="button" data-index="' + index + '" data-step="remove"></button>' +
             '<input id="points-' + index + '" data-point="' + index + '" type="text" inputmode="numeric" maxlength="3" value="' + points[index] + '">' +
-            '<button type="button" data-index="' + index + '" data-change="5" aria-label="Add up to 5 points to ' + name + '">+</button>' +
+            '<button type="button" data-index="' + index + '" data-step="add"></button>' +
             '</div></div>';
         }).join("") + '</div>' +
         '<div class="point-actions"><div class="point-shortcuts">' +
@@ -229,10 +231,10 @@ function renderRating() {
   if (waiting) return;
   const grid = document.querySelector(".point-grid");
   grid.addEventListener("click", (event) => {
-    const control = event.target.closest("[data-change]");
+    const control = event.target.closest("[data-step]");
     if (!control) return;
     const i = Number(control.dataset.index);
-    setPoints(i, points[i] + Number(control.dataset.change));
+    setPoints(i, points[i] + (control.dataset.step === "add" ? POINT_STEP : -POINT_STEP));
     say(remaining() + " points left");
   });
   grid.addEventListener("input", (event) => {
@@ -287,6 +289,7 @@ function updatePoints() {
   const rest = remaining();
   sessionStorage.setItem("draft:" + roomId + ":" + room.round, JSON.stringify(points));
   document.querySelector("#remaining").textContent = rest;
+  document.querySelector("#remaining-mobile").textContent = rest + " points left";
   document.querySelector("#budget-fill").style.width = (100 - rest) + "%";
   document.querySelector("#vote").disabled = Boolean(rest || busy || timeLeft() <= 0);
   document.querySelector("#fill").disabled = !rest;
@@ -296,22 +299,38 @@ function updatePoints() {
     const input = row.querySelector("input");
     if (input.value !== String(points[index])) input.value = points[index];
     row.classList.toggle("has-points", points[index] > 0);
-    row.querySelector('[data-change="-5"]').disabled = points[index] === 0;
-    row.querySelector('[data-change="5"]').disabled = rest === 0;
+    const name = TRAITS[room.traits[index]][0];
+    updateStep(row.querySelector('[data-step="remove"]'), Math.min(POINT_STEP, points[index]), name);
+    updateStep(row.querySelector('[data-step="add"]'), Math.min(POINT_STEP, rest), name);
   });
 }
 
+function updateStep(button, amount, trait) {
+  const add = button.dataset.step === "add";
+  button.disabled = amount === 0;
+  const visibleAmount = amount || POINT_STEP;
+  button.textContent = (add ? "+" : "−") + visibleAmount;
+  button.setAttribute("aria-label", (add ? "Add " : "Remove ") + visibleAmount +
+    (visibleAmount === 1 ? " point" : " points") + (add ? " to " : " from ") + trait);
+}
+
 function renderReveal() {
-  const [name, , glyph] = TRAITS[room.traits[room.award]];
-  const winners = room.players.filter((member) => room.winners.includes(member.id));
+  const [name, , glyph] = TRAITS[room.traits[room.ranking]];
   app.innerHTML = stageNav(3) + '<section class="panel reveal centered"><div class="confetti" aria-hidden="true">' +
     Array.from({ length: 18 }, (_, i) => '<i style="--piece:' + i + ';--confetti:' + PALETTE[i % PALETTE.length] + '"></i>').join("") +
-    '</div><div class="round-label">Award ' + (room.award + 1) + ' of 10</div>' +
-    '<div class="reveal-glyph" aria-hidden="true">' + glyph + '</div><h1>Top ' + name + '</h1>' +
-    (winners.length ? '<div class="winner-list">' + winners.map((winner) =>
-      '<div>' + avatar(winner) + '<strong>' + html(winner.name) + '</strong></div>').join("") + '</div>' +
-      (winners.length > 1 ? '<p>It’s a tie!</p>' : '') : '<p>No votes this time.</p>') +
+    '</div><div class="round-label">Trait rankings · ' + (room.ranking + 1) + ' of 10</div>' +
+    '<div class="reveal-glyph" aria-hidden="true">' + glyph + '</div><h1>' + name + '</h1>' +
+    (room.leaders.length ? '<p>Top three by average points</p>' + rankingList(room.leaders) : '<p>No votes this time.</p>') +
     '<div class="reveal-track" aria-hidden="true"><span id="reveal-fill"></span></div></section>';
+}
+
+function rankingList(leaders) {
+  return '<ol class="ranking-list">' + leaders.map(({ id, rank, average }) => {
+    const member = room.players.find((friend) => friend.id === id);
+    return '<li><span class="rank-place" aria-label="Rank ' + rank + '">#' + rank + '</span>' +
+      avatar(member) + '<strong class="rank-name">' + html(member.name) + '</strong>' +
+      '<span class="rank-average"><strong>' + average.toFixed(1) + '</strong> avg</span></li>';
+  }).join("") + '</ol>';
 }
 
 function radar(traits, scores, max) {
@@ -349,39 +368,66 @@ function radar(traits, scores, max) {
 }
 
 function renderResults() {
-  resultId ??= room.me;
-  const member = room.players.find(({ id }) => id === resultId);
-  const result = room.results.find(({ id }) => id === resultId);
-  const scores = result.totals.map((total) => total / (result.votes || 1));
   const allScores = room.results.flatMap(({ totals, votes }) => totals.map((total) => total / (votes || 1)));
   const max = Math.max(10, Math.ceil(Math.max(...allScores) / 5) * 5);
+  const selected = room.players.find(({ id }) => id === resultId);
   app.innerHTML = stageNav(3) + '<div class="page-heading"><div><h1>The group chat verdict.</h1>' +
-    '<p>Explore everyone’s scores and revisit the winners.</p></div></div>' +
-    '<div class="result-layout"><section class="panel results-people"><h2>Players</h2><ul>' + room.players.map((friend) =>
+    '<p>Explore everyone’s scores and revisit the trait rankings.</p></div>' +
+    (selected ? '<button class="button secondary compact" type="button" data-everyone>View everyone</button>' : '') +
+    '</div>' + (selected ? playerProfile(selected, max) : allPlayers(max)) +
+    '<section class="panel all-rankings"><div class="panel-heading"><h2>' + icon("trophy") + 'Trait rankings</h2>' +
+    '<span class="muted ranking-caption">Average points per vote</span></div><div class="ranking-grid">' +
+    room.traits.map((id, i) =>
+      '<article><h3><span class="row-glyph" aria-hidden="true">' + TRAITS[id][2] + '</span>' + TRAITS[id][0] + '</h3>' +
+      (room.rankings[i].length ? rankingList(room.rankings[i]) : '<p class="muted">No votes</p>') + '</article>'
+    ).join("") + '</div></section>';
+}
+
+function chartScale(max) {
+  return '<p class="muted chart-note">Average points per vote · Shared scale 0–' + max + '</p>';
+}
+
+function allPlayers(max) {
+  return '<section class="everyone-results"><div class="panel-heading"><div><h2>Everyone</h2>' + chartScale(max) +
+    '</div><span class="small-pill">' + icon("people", 15) + room.players.length + ' players</span></div>' +
+    '<div class="chart-grid">' + room.players.map((member, i) => {
+      const result = room.results[i];
+      return '<button class="panel chart-card" type="button" data-result="' + member.id + '">' +
+        '<span class="chart-card-heading">' + avatar(member) + '<span><strong>' + html(member.name) + '</strong>' +
+        '<small>' + voteLabel(result.votes) + (member.id === room.me ? " · You" : "") + '</small></span>' +
+        '<span class="chart-arrow">' + icon("arrow", 16) + '</span></span>' +
+        (result.votes ? radar(room.traits, result.totals.map((total) => total / result.votes), max)
+          : '<span class="empty-chart muted">No votes were submitted.</span>') + '</button>';
+    }).join("") + '</div></section>';
+}
+
+function voteLabel(count) {
+  return count + " / " + (room.players.length - 1) + " votes";
+}
+
+function playerProfile(member, max) {
+  const result = room.results.find(({ id }) => id === member.id);
+  const scores = result.totals.map((total) => total / (result.votes || 1));
+  return '<div class="result-layout"><section class="panel results-people"><h2>Players</h2><ul>' + room.players.map((friend) =>
       '<li><button type="button" data-result="' + friend.id + '" aria-pressed="' + (friend.id === resultId) + '">' +
       avatar(friend) + '<span>' + html(friend.name) + '</span>' + (friend.id === room.me ? '<small>You</small>' : '') + '</button></li>').join("") +
     '</ul></section><section class="panel result-profile"><div class="panel-heading">' +
-    '<h2>' + html(member.name) + '’s stats</h2><span class="small-pill">' + result.votes + ' / ' + (room.players.length - 1) + ' votes</span></div>' +
+    '<h2>' + html(member.name) + '’s stats</h2><span class="small-pill">' + voteLabel(result.votes) + '</span></div>' +
     (result.votes ? '<div class="result-scores">' + radar(room.traits, scores, max) +
       '<ul aria-label="Average points per trait">' + room.traits.map((id, i) =>
         '<li><span>' + TRAITS[id][0] + '</span><strong>' + Number(scores[i].toFixed(1)) + '</strong></li>').join("") + '</ul></div>' +
-      '<p class="muted chart-note">Average points per vote · All charts use the same scale, 0–' + max + '</p>'
-      : '<p class="empty-result">No votes were submitted for this player.</p>') + '</section></div>' +
-    '<section class="panel all-awards"><div class="panel-heading"><h2>' + icon("trophy") + 'Trait winners</h2></div><ul>' +
-    room.traits.map((id, i) => {
-      const winners = room.players.filter((friend) => room.awards[i].includes(friend.id));
-      return '<li><span class="row-glyph" aria-hidden="true">' + TRAITS[id][2] + '</span><div><span>' +
-        TRAITS[id][0] + '</span><strong>' + (winners.length ? winners.map(({ name }) => html(name)).join(", ") : "No votes") +
-        '</strong></div></li>';
-    }).join("") + '</ul></section>';
-  document.querySelector(".results-people").addEventListener("click", (event) => {
-    const control = event.target.closest("[data-result]");
-    if (!control || control.dataset.result === resultId) return;
-    resultId = control.dataset.result;
-    renderResults();
-    document.querySelector('[data-result="' + resultId + '"]').focus();
-  });
+      chartScale(max) : '<p class="empty-result">No votes were submitted for this player.</p>') + '</section></div>';
 }
+
+app.addEventListener("click", (event) => {
+  const control = event.target.closest("[data-result], [data-everyone]");
+  if (!control) return;
+  const old = resultId;
+  resultId = control.dataset.result ?? null;
+  if (old === resultId) return;
+  renderResults();
+  document.querySelector('[data-result="' + (resultId ?? old) + '"]').focus();
+});
 
 function timeLeft() {
   return room?.deadline ? Math.max(0, room.deadline - (Date.now() + offset)) : 0;
@@ -405,16 +451,19 @@ function updateTimer() {
 
 function renderRoom() {
   setStatus();
-  const key = [room.phase, room.round, room.award, room.voted, Boolean(room.picks),
+  const key = [room.phase, room.round, room.ranking, room.voted, Boolean(room.picks),
     room.phase === "lobby" ? room.players.length : ""].join(":");
   if (viewKey !== key) {
-    const oldPhase = viewKey.split(":")[0];
+    const [oldPhase, oldRound] = viewKey.split(":");
     viewKey = key;
     const renderers = {
       lobby: renderLobby, traits: renderTraits, starting: renderStarting, rating: renderRating, reveal: renderReveal, results: renderResults,
     };
     renderers[room.phase]();
-    if (oldPhase !== room.phase) say(app.querySelector("h1")?.textContent ?? "");
+    if (room.phase === "reveal") say(app.querySelector("h1").textContent + ". " + app.querySelector(".reveal").innerText);
+    else if (oldPhase !== room.phase || (room.phase === "rating" && oldRound !== String(room.round))) {
+      say(app.querySelector("h1")?.textContent ?? "");
+    }
   }
   const ready = document.querySelector("#ready-count");
   if (ready) ready.textContent = room.players.filter(({ ready }) => ready).length + " / " + room.players.length + " ready";

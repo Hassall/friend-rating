@@ -2,6 +2,8 @@
 
 A desktop-first party game for a host and up to 20 invited friends.
 
+Play online at https://friend-rating-after-hours.corkyravioli5.chatgpt.site.
+
 ## Run locally
 
 Use Node.js 24 or later. From this folder, run `node scripts/dev.mjs` and open
@@ -15,13 +17,14 @@ each player has their own player pass. The local server stores rooms in
 2. Each player submits exactly ten traits. The ten traits with the most picks
    go through. A tie at the cutoff is resolved alphabetically.
 3. Each friend gets a 30-second turn. Everyone else can type whole numbers or
-   use the plus and minus controls to split 100 points. Split evenly sets all
+   use the +5 and −5 controls to split 100 points. Split evenly sets all
    traits to 10. Fill remaining divides the leftover budget among traits
    already given points, or among all ten when the ballot is empty.
 4. Lock in the vote before the timer reaches zero. Only locked votes count.
-5. The game reveals the top scorer for each trait in turn, then opens the
-   group recap. Scores are averaged over each player's submitted ballots.
-   Tied winners share the award.
+5. The game reveals up to three players per trait, along with their average
+   points per vote. Tied players share a rank, with join order breaking ties
+   for the last slot. The recap shows every player’s chart on a common
+   scale. Select a chart to view exact scores.
 
 The server enforces the invite limit, stage changes, and voting rules. The
 lobby is open to anyone with its room URL until the host starts. Players
