@@ -91,7 +91,7 @@ function renderWelcome(message = "") {
   app.innerHTML = '<div class="welcome"><section class="welcome-copy">' +
     '<div class="kicker"><span></span>' + (joining ? "INVITE TO PLAY" : "THE GROUP CHAT PARTY GAME") + '</div>' +
     '<h1>' + (joining ? 'You’re <em>invited.</em>' : 'Rate your<br><em>friends.</em>') + '</h1>' +
-    (joining ? '' : '<p class="welcome-description">Pick 10 traits, rate your friends, and see who comes out on top.</p>') +
+    (joining ? '' : '<p class="welcome-description">Pick 10 traits, rate your friends, and see what everyone thinks.</p>') +
     '<form id="entry" class="entry panel"><label for="name">Your display name</label>' +
     '<div class="entry-controls"><input id="name" name="name" maxlength="24" required autocomplete="nickname" aria-describedby="name-hint" placeholder="e.g. Jordan">' +
     '<button class="button primary" type="submit">' + (joining ? "Join room" : "Create a room") + icon("arrow") + '</button></div>' +
