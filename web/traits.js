@@ -26,4 +26,12 @@ export const TRAITS = [
   ["Storyteller", "Every story has a side story", "☄"],
   ["Wholesome", "Makes the call feel like home", "♡"],
   ["Yapper", "Never runs out of things to say", "✺"],
+  ["Backseat Gamer", "Has notes for whoever’s playing", "⌖"],
+  ["Clip Archivist", "Always has the clip saved", "▣"],
+  ["Group Chat DJ", "Has a track for every mood", "♫"],
+  ["MVP", "Makes the whole squad better", "★"],
+  ["Plot Twister", "Takes the conversation somewhere unexpected", "↷"],
+  ["Pun Machine", "Can’t resist a terrible pun", "✹"],
+  ["Quiet Carry", "Does the work without making a fuss", "◆"],
+  ["Voice Actor", "Has a voice for every character", "◈"],
 ];

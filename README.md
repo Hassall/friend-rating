@@ -14,21 +14,34 @@ each player has their own player pass. The local server stores rooms in
 ## Play
 
 1. Create a room, copy its invite link, and start once everyone has joined.
-2. Each player submits exactly ten traits. The ten traits with the most picks
-   go through. A tie at the cutoff is resolved alphabetically.
+2. Each player has two minutes to lock in ten traits. You can review or unlock
+   your picks until the timer expires or everyone locks in. Only locked picks
+   count. The ten most popular traits go through, with alphabetical tiebreaks
+   for traits that received votes. Preset traits fill any remaining slots.
 3. Each friend gets a 30-second turn. Everyone else uses the +5 and −5
    controls to give out 100 points. Split evenly sets all traits to 10.
    Fill remaining divides the leftover budget in five-point chunks among
    traits already given points, or among all ten when the ballot is empty.
-4. Lock in the vote before the timer reaches zero. Only locked votes count.
+4. Lock in the vote before the timer reaches zero. You can review or unlock it
+   while the round is open. The timer or the last eligible lock closes the
+   round, then a four-second countdown leads to the next player or the rankings.
 5. The game reveals up to three players per trait, along with their average
    points per vote. Tied players share a rank, with join order breaking ties
    for the last slot. The recap shows every player’s chart on a common
    scale. Select a chart to view exact scores.
 
-The server enforces the invite limit, stage changes, and voting rules. The
-lobby is open to anyone with its room URL until the host starts. Players
-returning in the same browser can reconnect with their existing player pass.
+The short invite link admits anyone holding it while the lobby is open.
+Room state lives on the server. Closing a tab keeps your seat and lets you
+rejoin from the same browser. In the lobby, an active player becomes host
+if the host has been away for about a minute. Once the game starts, the
+timers advance independently of the host.
+
+**Leave room** frees your seat. If the host leaves, the first remaining
+player takes over. A departing player is skipped in future rounds, and
+closed rounds keep their scores. The room closes when the last player leaves.
+An unstarted room expires after one hour, and a started game and its recap
+expire 24 hours after the game starts. The server allows six creations per
+network address per clock hour and removes expired records as rooms are created.
 
 ## Build
 

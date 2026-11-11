@@ -14,7 +14,9 @@ const ICONS = {
   trophy: '<path d="M7 4h10v7a5 5 0 0 1-10 0V4Zm0 1H3v2a4 4 0 0 0 4 4m10-6h4v2a4 4 0 0 1-4 4m-5 5v4m-4 0h8"/>',
 };
 
-const roomPath = location.pathname.match(/^\/room\/([a-f0-9]{32})$/);
+const roomPath = location.pathname.match(/^\/(?:r|room)\/([a-f0-9]{32}|[A-Za-z0-9_-]{16})$/);
+const sortedTraits = TRAITS.map(([name], index) => ({ name, index }))
+  .sort((a, b) => a.name.localeCompare(b.name, "en"));
 let roomId = roomPath?.[1];
 let pass = roomId ? localStorage.getItem("player:" + roomId) : null;
 let room = null;
@@ -43,17 +45,23 @@ function say(message) {
 }
 
 function notice(message = "") {
-  const error = document.querySelector("#error");
+  const error = document.querySelector("#error") ?? document.querySelector("#room-error");
   if (error) error.textContent = message;
 }
 
 function setStatus() {
   const text = syncFailed ? "Reconnecting…" : "Private room";
   const glyph = syncFailed ? "clock" : "lock";
-  const key = roomId ? text : "";
+  const key = roomId ? text + Boolean(room) : "";
   if (header.dataset.status === key) return;
   header.dataset.status = key;
-  header.innerHTML = roomId ? '<span class="private-tag">' + icon(glyph, 15) + text + '</span>' : "";
+  header.innerHTML = roomId ? '<span class="private-tag">' + icon(glyph, 15) + text + '</span>' +
+    (room ? '<button type="button" class="button compact quiet" id="leave">Leave room</button><span class="error" id="room-error" role="alert"></span>' : '') : "";
+  document.querySelector("#leave")?.addEventListener("click", (event) => send("leave", {}, event.currentTarget));
+}
+
+function invitePath(id) {
+  return (id.length === 16 ? "/r/" : "/room/") + id;
 }
 
 function avatar(member, size = "") {
@@ -103,7 +111,7 @@ function renderWelcome(message = "") {
 
 function renderLobby() {
   const isHost = room.me === room.host;
-  const url = location.origin + "/room/" + room.id;
+  const url = location.origin + invitePath(room.id);
   app.innerHTML = stageNav(0) + '<div class="page-heading"><div><h1>Get the crew in.</h1>' +
     '<p>' + (isHost ? "Share the invite link, then start when everyone’s here." : "You’re in. The host will start when everyone’s here.") + '</p></div></div>' +
     '<div class="lobby-layout"><section class="panel roster"><div class="panel-heading"><h2>In the room</h2><span class="small-pill">' +
@@ -138,23 +146,26 @@ function renderTraits() {
   if (locked) chosen = new Set(room.picks);
   app.innerHTML = stageNav(1) + '<div class="page-heading"><div><h1>' +
     (locked ? "Your picks are in." : "Pick 10 traits.") + '</h1><p>' +
-    (locked ? "The game starts when everyone submits their picks." : "Choose the traits you want in the game. The ten most popular make the cut.") +
+    (locked ? "Review your picks or unlock them while selection is open." : "Choose the traits you want in the game. The ten most popular make the cut.") +
     '</p></div><span class="small-pill ready-count" id="ready-count"></span></div>' +
     '<section class="panel trait-panel" aria-label="Available traits"><div class="trait-grid">' +
-    TRAITS.map(([name, description, glyph], index) =>
+    sortedTraits.map(({ index }) => {
+      const [name, description, glyph] = TRAITS[index];
+      return (
       '<button class="trait-choice" type="button" data-trait="' + index + '" aria-pressed="' + chosen.has(index) + '"' +
       (locked ? " disabled" : "") + '><span class="trait-glyph" aria-hidden="true">' + glyph +
       '</span><span class="trait-text"><strong>' + name + '</strong><small>' + description +
-      '</small></span><span class="pick-check">' + icon("tick", 14) + '</span></button>'
-    ).join("") + '</div></section>' +
+      '</small></span><span class="pick-check">' + icon("tick", 14) + '</span></button>');
+    }).join("") + '</div></section>' +
     '<div class="selection-bar panel"><div class="pick-meter"><strong id="selection-count"></strong><div class="pips" aria-hidden="true">' +
     Array.from({ length: 10 }, () => "<span></span>").join("") + '</div></div>' +
-    (locked ? '<span class="waiting-line"><span class="dot"></span>Waiting for friends</span>' :
+    (room.deadline ? '<span class="small-pill pick-clock">' + icon("clock", 15) + '<span data-clock="120"></span></span>' : "") +
+    (locked ? '<button id="unlock-picks" class="button secondary">Unlock picks</button>' :
       '<button id="submit-picks" class="button primary">Submit picks' + icon("arrow") + '</button>') + '</div>' +
     '<div id="error" role="alert" class="error"></div>';
   document.querySelector(".trait-grid").addEventListener("click", (event) => {
     const control = event.target.closest("[data-trait]");
-    if (!control || locked || busy) return;
+    if (!control || locked || busy || (room.deadline && !timeLeft())) return;
     const index = Number(control.dataset.trait);
     if (chosen.has(index)) chosen.delete(index);
     else if (chosen.size < 10) chosen.add(index);
@@ -163,6 +174,8 @@ function renderTraits() {
   });
   document.querySelector("#submit-picks")?.addEventListener("click", (event) =>
     send("picks", { picks: [...chosen] }, event.currentTarget));
+  document.querySelector("#unlock-picks")?.addEventListener("click", (event) =>
+    send("unlock-picks", {}, event.currentTarget));
   updateChoices();
 }
 
@@ -183,14 +196,26 @@ function renderStarting() {
   app.innerHTML = stageNav(2) + '<section class="panel centered transition-panel"><span class="panel-icon">✦</span>' +
     '<h1>The traits are locked.</h1><p>Get ready to rate. Each friend gets 30 seconds in the spotlight.</p>' +
     '<ul class="locked-traits">' + room.traits.map((id) => '<li>' + TRAITS[id][0] + '</li>').join("") +
-    '</ul><div class="countdown large" data-clock="5"></div></section>';
+    '</ul><div class="countdown large" data-clock="4"></div></section>';
+}
+
+function renderBreak() {
+  const next = room.players.slice(room.next).find((member) => !member.left);
+  const moreRounds = next && room.players.filter((member) => !member.left).length >= 2;
+  app.innerHTML = stageNav(2) + '<section class="panel centered transition-panel">' +
+    '<p class="round-label">Round closed</p><h1>' +
+    (moreRounds ? (next.id === room.me ? 'You’re up next.' : 'Up next · ' + html(next.name)) : 'Trait rankings are next.') +
+    '</h1><div class="countdown large" data-clock="4"></div></section>';
 }
 
 function renderRating() {
   const target = room.players[room.round];
   const ownRound = room.me === target.id;
-  const waiting = ownRound || room.voted;
-  if (!waiting) {
+  const locked = room.voted;
+  if (locked && room.ballot) {
+    points = [...room.ballot];
+    sessionStorage.setItem("draft:" + roomId + ":" + room.round, JSON.stringify(points));
+  } else if (!ownRound) {
     try {
       const saved = JSON.parse(sessionStorage.getItem("draft:" + roomId + ":" + room.round));
       points = Array.isArray(saved) && saved.length === 10 &&
@@ -208,30 +233,33 @@ function renderRating() {
     '<div class="rating-layout"><aside class="panel rating-aside">' + avatar(target, "avatar-large") +
     '<strong class="spotlight-name">' + html(target.name) + '</strong><div class="countdown" data-clock="30"></div>' +
     '<p class="muted">Time left</p><span class="small-pill" id="vote-count"></span>' +
-    (waiting ? "" : '<span class="mobile-budget" id="remaining-mobile"></span>') + '</aside>' +
-    (waiting
-      ? '<section class="panel centered round-wait"><span class="panel-icon">' + icon(ownRound ? "people" : "tick", 28) +
-        '</span><h2>' + (ownRound ? "Your friends are voting" : "Vote locked in") + '</h2><p>' +
-        (ownRound ? "Sit tight while the group rates you." : "The next round starts when the timer ends.") + '</p></section>'
-      : '<section class="panel point-panel"><div class="point-heading"><div><h2>Rate their traits</h2>' +
-        '<p>Use +5 and −5 to give out all 100 points.</p></div><div class="point-budget"><strong id="remaining">100</strong><span>points left</span></div></div>' +
-        '<div class="budget-bar" aria-hidden="true"><span id="budget-fill"></span></div>' +
-        '<div class="point-grid">' + room.traits.map((id, index) => {
+    (ownRound || locked ? "" : '<span class="mobile-budget" id="remaining-mobile"></span>') + '</aside>' +
+    (ownRound
+      ? '<section class="panel centered round-wait"><span class="panel-icon">' + icon("people", 28) +
+        '</span><h2>Your friends are voting</h2><p>Sit tight while the group rates you.</p></section>'
+      : '<section class="panel point-panel"><div class="point-heading"><div><h2>' + (locked ? "Vote locked in" : "Rate their traits") + '</h2>' +
+        (locked ? '<p>' + (room.canUnlock ? "You can unlock while this round is open." : "Waiting for the round to end.") + '</p></div></div>'
+          : '<p>Use +5 and −5 to give out all 100 points.</p></div><div class="point-budget"><strong id="remaining">100</strong><span>points left</span></div></div>' +
+            '<div class="budget-bar" aria-hidden="true"><span id="budget-fill"></span></div>') +
+        '<div class="point-grid' + (locked ? ' locked-ballot' : '') + '">' + room.traits.map((id, index) => {
           const [name, , glyph] = TRAITS[id];
           return '<div class="point-row" data-point-row="' + index + '"><span class="point-trait"><span class="row-glyph" aria-hidden="true">' +
             glyph + '</span>' + name + '</span><div class="stepper">' +
-            '<button type="button" data-index="' + index + '" data-step="remove" aria-label="Remove 5 points from ' + name + '">−5</button>' +
+            '<button type="button" data-index="' + index + '" data-step="remove" aria-label="Remove 5 points from ' + name + '"' + (locked ? " disabled" : "") + '>−5</button>' +
             '<span class="point-value" data-point="' + index + '">' + points[index] + '</span>' +
-            '<button type="button" data-index="' + index + '" data-step="add" aria-label="Add 5 points to ' + name + '">+5</button>' +
+            '<button type="button" data-index="' + index + '" data-step="add" aria-label="Add 5 points to ' + name + '"' + (locked ? " disabled" : "") + '>+5</button>' +
             '</div></div>';
         }).join("") + '</div>' +
-        '<div class="point-actions"><div class="point-shortcuts">' +
+        (locked ? (room.canUnlock ? '<div class="point-actions"><button class="button secondary" id="unlock">Unlock vote</button></div>' : '')
+          : '<div class="point-actions"><div class="point-shortcuts">' +
         '<button id="even" class="button compact secondary" type="button">Split evenly</button>' +
         '<button id="fill" class="button compact secondary" type="button" title="Split leftover points among the traits you’ve already given points to">Fill remaining</button>' +
         '<button id="reset" class="button compact quiet" type="button">Reset</button></div>' +
-        '<button class="button primary" id="vote">Lock in vote' + icon("tick") + '</button></div>' +
+        '<button class="button primary" id="vote">Lock in vote' + icon("tick") + '</button></div>') +
         '<div id="error" role="alert" class="error"></div></section>') + '</div>';
-  if (waiting) return;
+  document.querySelector("#unlock")?.addEventListener("click", (event) =>
+    send("unlock", { round: room.round }, event.currentTarget));
+  if (ownRound || locked) return;
   const grid = document.querySelector(".point-grid");
   grid.addEventListener("click", (event) => {
     const control = event.target.closest("[data-step]");
@@ -414,26 +442,31 @@ function updateTimer() {
   const clock = document.querySelector("[data-clock]");
   if (clock) {
     const seconds = Math.ceil(ms / 1000);
-    clock.textContent = clock.dataset.clock === "30" ? "0:" + String(seconds).padStart(2, "0") : seconds;
+    const duration = Number(clock.dataset.clock);
+    clock.textContent = duration >= 30 ? Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0") : seconds;
     clock.setAttribute("aria-label", seconds + " seconds left");
-    clock.style.setProperty("--progress", (ms / (Number(clock.dataset.clock) * 10)) + "%");
+    clock.style.setProperty("--progress", Math.min(100, ms / (duration * 10)) + "%");
     clock.classList.toggle("urgent", seconds <= 5 && clock.dataset.clock === "30");
   }
   const reveal = document.querySelector("#reveal-fill");
   if (reveal) reveal.style.width = (ms / 50) + "%";
-  const lock = document.querySelector("#vote");
-  if (lock && !ms) lock.disabled = true;
+  if (room?.deadline && !ms) {
+    document.querySelectorAll("#vote, #unlock, #submit-picks, #unlock-picks")
+      .forEach((control) => { control.disabled = true; });
+  }
 }
 
 function renderRoom() {
   setStatus();
-  const key = [room.phase, room.round, room.ranking, room.voted, Boolean(room.picks),
-    room.phase === "lobby" ? room.players.length : ""].join(":");
+  const rosterKey = room.phase === "lobby" || room.phase === "break"
+    ? room.players.map(({ id, left }) => id + Number(left)).join(",") : "";
+  const key = [room.phase, room.round, room.ranking, room.voted, Boolean(room.picks), room.host, rosterKey].join(":");
   if (viewKey !== key) {
     const [oldPhase, oldRound] = viewKey.split(":");
     viewKey = key;
     const renderers = {
-      lobby: renderLobby, traits: renderTraits, starting: renderStarting, rating: renderRating, reveal: renderReveal, results: renderResults,
+      lobby: renderLobby, traits: renderTraits, starting: renderStarting, rating: renderRating,
+      break: renderBreak, reveal: renderReveal, results: renderResults,
     };
     renderers[room.phase]();
     if (room.phase === "reveal") say(app.querySelector("h1").textContent + ". " + app.querySelector(".reveal").innerText);
@@ -444,7 +477,7 @@ function renderRoom() {
   const ready = document.querySelector("#ready-count");
   if (ready) ready.textContent = room.players.filter(({ ready }) => ready).length + " / " + room.players.length + " ready";
   const votes = document.querySelector("#vote-count");
-  if (votes) votes.textContent = room.voteCount + " / " + (room.players.length - 1) + " voted";
+  if (votes) votes.textContent = room.voteCount + " / " + room.eligibleCount + " voted";
   updateTimer();
 }
 
@@ -490,7 +523,7 @@ async function enterRoom(event) {
     const next = await api(roomId ? "/" + roomId + "/join" : "", { name }, token);
     roomId = next.id;
     localStorage.setItem("player:" + roomId, token);
-    history.replaceState(null, "", "/room/" + roomId);
+    history.replaceState(null, "", invitePath(roomId));
     accept(next, sentAt);
     schedulePoll();
   } catch (error) {
@@ -506,13 +539,30 @@ async function send(action, data, control) {
   notice();
   try {
     const sentAt = Date.now();
-    accept(await api("/" + roomId + "/" + action, data), sentAt);
+    const next = await api("/" + roomId + "/" + action, data);
+    if (next.left) {
+      exitRoom("You left the room.");
+    } else {
+      accept(next, sentAt);
+    }
   } catch (error) {
     notice(error.message);
   } finally {
     busy = false;
-    if (control.isConnected) control.disabled = action === "vote" && timeLeft() <= 0;
+    if (control.isConnected) control.disabled = Boolean(action !== "leave" && room?.deadline && !timeLeft());
   }
+}
+
+function exitRoom(message) {
+  clearTimeout(pollTimer);
+  localStorage.removeItem("player:" + roomId);
+  roomId = pass = room = null;
+  viewKey = "";
+  syncFailed = false;
+  resultId = null;
+  chosen = new Set();
+  history.replaceState(null, "", "/");
+  renderWelcome(message);
 }
 
 function schedulePoll(delay = 900) {
@@ -522,12 +572,20 @@ function schedulePoll(delay = 900) {
 
 async function poll() {
   if (!roomId || !pass) return;
+  const pollingRoom = roomId;
   try {
     const sentAt = Date.now();
-    accept(await api("/" + roomId), sentAt);
+    const next = await api("/" + pollingRoom);
+    if (pollingRoom !== roomId) return;
+    accept(next, sentAt);
   } catch (error) {
-    if (!room && [401, 404].includes(error.status)) {
-      renderWelcome(error.status === 404 ? error.message : "");
+    if (pollingRoom !== roomId) return;
+    if ([404, 410].includes(error.status) || (room && error.status === 401)) {
+      exitRoom(error.message);
+      return;
+    }
+    if (!room && error.status === 401) {
+      renderWelcome();
       return;
     }
     syncFailed = true;

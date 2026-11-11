@@ -10,6 +10,8 @@ await mkdir(stateDirectory, { recursive: true });
 const sqlite = new DatabaseSync(new URL("rooms.sqlite", stateDirectory));
 const table = sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'rooms'").get();
 if (!table) sqlite.exec(await readFile(new URL("../drizzle/0000_rooms.sql", import.meta.url), "utf8"));
+const limits = sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'room_limits'").get();
+if (!limits) sqlite.exec(await readFile(new URL("../drizzle/0001_room_limits.sql", import.meta.url), "utf8"));
 
 const db = {
   prepare(sql) {
