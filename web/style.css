@@ -73,6 +73,7 @@ input {
 }
 input::placeholder { color: #9484a5; }
 .entry input { flex: 1; width: 100%; }
+.name-hint { margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .entry-note { display: flex; align-items: center; gap: 7px; margin-top: 11px; font-size: 12px; color: var(--muted); }
 .entry-note svg { color: var(--violet); }
 .error { color: var(--pink); font-size: 13px; }

@@ -91,12 +91,11 @@ function renderWelcome(message = "") {
   app.innerHTML = '<div class="welcome"><section class="welcome-copy">' +
     '<div class="kicker"><span></span>' + (joining ? "INVITE TO PLAY" : "THE GROUP CHAT PARTY GAME") + '</div>' +
     '<h1>' + (joining ? 'You’re <em>invited.</em>' : 'Rate your<br><em>friends.</em>') + '</h1>' +
-    '<p class="welcome-description">' + (joining
-      ? "Enter the name your friends know you by to join their room."
-      : "Pick 10 traits, rate your friends, and see who comes out on top.") + '</p>' +
+    (joining ? '' : '<p class="welcome-description">Pick 10 traits, rate your friends, and see who comes out on top.</p>') +
     '<form id="entry" class="entry panel"><label for="name">Your display name</label>' +
-    '<div class="entry-controls"><input id="name" name="name" maxlength="24" required autocomplete="nickname" placeholder="e.g. Mooncake">' +
+    '<div class="entry-controls"><input id="name" name="name" maxlength="24" required autocomplete="nickname" aria-describedby="name-hint" placeholder="e.g. Jordan">' +
     '<button class="button primary" type="submit">' + (joining ? "Join room" : "Create a room") + icon("arrow") + '</button></div>' +
+    '<p class="name-hint" id="name-hint">Use your real name or the name you go by so your friends can recognize you.</p>' +
     '<p class="entry-note">' + icon("lock", 15) + (joining ? "This invite is for one private game." : "Private invite link · Up to 20 friends") + '</p>' +
     '<div id="error" role="alert" class="error"></div></form></section>' +
     '<aside class="preview" aria-label="Example results">' +
