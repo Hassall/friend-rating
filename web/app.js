@@ -189,7 +189,7 @@ function updateChoices() {
   document.querySelector("#selection-count").textContent = chosen.size + " / 10 selected";
   document.querySelectorAll(".pips span").forEach((pip, i) => pip.classList.toggle("filled", i < chosen.size));
   const submit = document.querySelector("#submit-picks");
-  if (submit) submit.disabled = busy || chosen.size !== 10;
+  if (submit) submit.disabled = chosen.size !== 10 || Boolean(room.deadline && !timeLeft());
 }
 
 function renderStarting() {
@@ -306,7 +306,7 @@ function updatePoints() {
   document.querySelector("#remaining").textContent = rest;
   document.querySelector("#remaining-mobile").textContent = rest + " points left";
   document.querySelector("#budget-fill").style.width = (100 - rest) + "%";
-  document.querySelector("#vote").disabled = Boolean(rest || busy || timeLeft() <= 0);
+  document.querySelector("#vote").disabled = Boolean(rest || timeLeft() <= 0);
   document.querySelector("#fill").disabled = !rest;
   document.querySelector("#reset").disabled = rest === 100;
   document.querySelectorAll("[data-point-row]").forEach((row) => {
@@ -540,6 +540,7 @@ async function send(action, data, control) {
   try {
     const sentAt = Date.now();
     const next = await api("/" + roomId + "/" + action, data);
+    busy = false;
     if (next.left) {
       exitRoom("You left the room.");
     } else {
