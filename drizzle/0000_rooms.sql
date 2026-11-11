@@ -1,0 +1,5 @@
+CREATE TABLE rooms (
+  id TEXT PRIMARY KEY NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 0,
+  state TEXT NOT NULL
+);
