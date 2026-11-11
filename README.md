@@ -31,6 +31,9 @@ each player has their own player pass. The local server stores rooms in
    scale. Select a chart to view exact scores.
 
 The short invite link admits anyone holding it while the lobby is open.
+On the hosted site, is.gd redirects to the public homepage. The browser
+carries the room code in the URL fragment after the redirect. The lobby
+also offers a direct link.
 Room state lives on the server. Closing a tab keeps your seat and lets you
 rejoin from the same browser. In the lobby, an active player becomes host
 if the host has been away for about a minute. Once the game starts, the
@@ -39,8 +42,9 @@ timers advance independently of the host.
 **Leave room** frees your seat. If the host leaves, the first remaining
 player takes over. A departing player is skipped in future rounds, and
 closed rounds keep their scores. The room closes when the last player leaves.
-An unstarted room expires after one hour, and a started game and its recap
-expire 24 hours after the game starts. The server allows six creations per
+An unstarted room expires after 15 minutes. A started game has a 30-minute
+limit, and its recap expires 10 minutes after the rankings finish or at the
+game limit, whichever comes first. The server allows six creations per
 network address per clock hour and removes expired records as rooms are created.
 
 ## Build

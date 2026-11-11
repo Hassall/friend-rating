@@ -14,6 +14,10 @@ const ICONS = {
   trophy: '<path d="M7 4h10v7a5 5 0 0 1-10 0V4Zm0 1H3v2a4 4 0 0 0 4 4m10-6h4v2a4 4 0 0 1-4 4m-5 5v4m-4 0h8"/>',
 };
 
+const LIVE_ORIGIN = "https://friend-rating-after-hours.corkyravioli5.chatgpt.site";
+const SHORT_INVITE = "https://is.gd/Fzi0MX";
+const roomFragment = location.pathname === "/" && location.hash.match(/^#r=([A-Za-z0-9_-]{16})$/)?.[1];
+if (roomFragment) history.replaceState(null, "", invitePath(roomFragment));
 const roomPath = location.pathname.match(/^\/(?:r|room)\/([a-f0-9]{32}|[A-Za-z0-9_-]{16})$/);
 const sortedTraits = TRAITS.map(([name], index) => ({ name, index }))
   .sort((a, b) => a.name.localeCompare(b.name, "en"));
@@ -111,7 +115,9 @@ function renderWelcome(message = "") {
 
 function renderLobby() {
   const isHost = room.me === room.host;
-  const url = location.origin + invitePath(room.id);
+  const directUrl = location.origin + invitePath(room.id);
+  const url = location.origin === LIVE_ORIGIN && room.id.length === 16
+    ? SHORT_INVITE + "#r=" + room.id : directUrl;
   app.innerHTML = stageNav(0) + '<div class="page-heading"><div><h1>Get the crew in.</h1>' +
     '<p>' + (isHost ? "Share the invite link, then start when everyone’s here." : "You’re in. The host will start when everyone’s here.") + '</p></div></div>' +
     '<div class="lobby-layout"><section class="panel roster"><div class="panel-heading"><h2>In the room</h2><span class="small-pill">' +
@@ -123,22 +129,28 @@ function renderLobby() {
     '<p>Anyone with this invite can join while the lobby is open.</p>' +
     '<label class="sr-only" for="invite-url">Private invite link</label><input id="invite-url" readonly value="' + html(url) + '">' +
     '<button class="button secondary" id="copy">' + icon("link") + 'Copy invite link</button>' +
+    (url !== directUrl ? '<button type="button" class="button compact quiet" id="copy-direct">Copy direct link</button>' : '') +
     (isHost ? '<div class="start-area"><button class="button primary" id="start"' + (room.players.length < 2 ? " disabled" : "") +
       '>Start game' + icon("arrow") + '</button><p>' + (room.players.length < 2 ? "Invite at least one friend to start." : "Joining closes when the game starts.") + '</p></div>'
       : '<p class="start-area waiting-line"><span class="dot"></span>Waiting for the host</p>') +
     '<div id="error" role="alert" class="error"></div></section></div>';
-  document.querySelector("#copy").addEventListener("click", async (event) => {
-    const control = event.currentTarget;
-    try {
-      await navigator.clipboard.writeText(url);
-      control.innerHTML = icon("tick") + "Link copied";
-      say("Invite link copied.");
-    } catch {
-      document.querySelector("#invite-url").select();
-      say("Invite link selected. Press Control+C or Command+C to copy.");
-    }
-  });
+  document.querySelector("#copy").addEventListener("click", (event) => copyInvite(url, event.currentTarget));
+  document.querySelector("#copy-direct")?.addEventListener("click", (event) => copyInvite(directUrl, event.currentTarget));
   document.querySelector("#start")?.addEventListener("click", (event) => send("start", {}, event.currentTarget));
+}
+
+async function copyInvite(url, control) {
+  try {
+    await navigator.clipboard.writeText(url);
+    control.innerHTML = icon("tick") + "Link copied";
+    say("Invite link copied.");
+  } catch {
+    const input = document.querySelector("#invite-url");
+    if (!input) return;
+    input.value = url;
+    input.select();
+    say("Invite link selected. Press Control+C or Command+C to copy.");
+  }
 }
 
 function renderTraits() {

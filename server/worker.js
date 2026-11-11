@@ -4,7 +4,11 @@ const PICK_MS = 120_000;
 const BREAK_MS = 4_000;
 const REVEAL_MS = 5_000;
 const TRAIT_COUNT = 10;
-const HOUR_MS = 3_600_000;
+const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
+const LOBBY_LIFETIME_MS = 15 * MINUTE_MS;
+const GAME_LIFETIME_MS = 30 * MINUTE_MS;
+const RECAP_LIFETIME_MS = 10 * MINUTE_MS;
 const LOBBY_HEARTBEAT_MS = 15_000;
 const HOST_TIMEOUT_MS = 60_000;
 const ROOM_LIMIT = 6;
@@ -110,9 +114,12 @@ function advance(room, now) {
       room.stage = { phase: "starting", deadline: Math.min(now, deadline) + BREAK_MS, next: 0 };
     } else if ((phase === "starting" || phase === "break") && now >= deadline) {
       const target = room.players.findIndex((member, index) => index >= next && !member.left);
-      room.stage = target < 0 || active.length < 2
-        ? { phase: "reveal", revealAt: deadline }
-        : { phase: "rating", round: target, deadline: deadline + ROUND_MS };
+      if (target < 0 || active.length < 2) {
+        room.stage = { phase: "reveal", revealAt: deadline };
+        room.expiresAt = Math.min(room.expiresAt, deadline + TRAIT_COUNT * REVEAL_MS + RECAP_LIFETIME_MS);
+      } else {
+        room.stage = { phase: "rating", round: target, deadline: deadline + ROUND_MS };
+      }
     } else if (phase === "rating") {
       const eligible = active.filter((member) => member !== room.players[round]);
       const locked = eligible.every((member) => Object.hasOwn(room.votes[round] ?? {}, member.id));
@@ -197,7 +204,7 @@ function applyAction(room, member, action, data, now) {
     if (room.players.length < 2) throw new GameError("Invite at least one friend first.");
     room.started = true;
     room.stage = { phase: "traits", deadline: now + PICK_MS };
-    room.expiresAt = now + 24 * HOUR_MS;
+    room.expiresAt = now + GAME_LIFETIME_MS;
     return true;
   }
 
@@ -310,7 +317,7 @@ export function createHandler(db, clock = Date.now) {
           await db.prepare("DELETE FROM rooms WHERE id IN (SELECT id FROM rooms WHERE json_extract(state, '$.expiresAt') IS NULL LIMIT ?)").bind(30).run();
         }
         const room = { id: inviteId(), players: [host], host: host.id, started: false, traits: [], votes: {},
-          stage: { phase: "lobby" }, expiresAt: now + HOUR_MS };
+          stage: { phase: "lobby" }, expiresAt: now + LOBBY_LIFETIME_MS };
         await db.prepare("INSERT INTO rooms (id, state) VALUES (?, ?)").bind(room.id, JSON.stringify(room)).run();
         return json(snapshot(room, host, now, 0), 201);
       }
@@ -326,7 +333,10 @@ export function createHandler(db, clock = Date.now) {
         let member = room.players.find((participant) => participant.pass === pass && !participant.left);
         if (member && advance(room, now)) {
           const result = await saveRoom(db, room, row.revision);
-          if (result.meta.changes && !action) return json(snapshot(room, member, now, row.revision + 1));
+          if (result.meta.changes) {
+            if (now >= room.expiresAt) throw new GameError("This room has expired.", 410);
+            if (!action) return json(snapshot(room, member, now, row.revision + 1));
+          }
           continue;
         }
         let changed = false;
