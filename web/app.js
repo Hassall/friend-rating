@@ -1,9 +1,8 @@
-import { TRAITS } from "./traits.js";
+import { POINT_STEP, TRAITS } from "./traits.js";
 
 const app = document.querySelector("#app");
 const header = document.querySelector("#header-status");
 const announcement = document.querySelector("#announcement");
-const POINT_STEP = 5;
 const PALETTE = ["#d7fa77", "#bca4ff", "#ff9bc9", "#9fe8fa", "#ffc98c", "#c9a9c0"];
 const ICONS = {
   lock: '<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 1 1 8 0v3m-4 4v3"/>',
@@ -82,7 +81,7 @@ function renderWelcome(message = "") {
     '<h1>' + (joining ? 'You’re <em>invited.</em>' : 'Rate your<br><em>friends.</em>') + '</h1>' +
     '<p class="welcome-description">' + (joining
       ? "Enter the name your friends know you by to join their room."
-      : "Pick the traits that fit your crew, give out points, and see who tops the rankings.") + '</p>' +
+      : "Pick 10 traits, rate your friends, and see who comes out on top.") + '</p>' +
     '<form id="entry" class="entry panel"><label for="name">Your display name</label>' +
     '<div class="entry-controls"><input id="name" name="name" maxlength="24" required autocomplete="nickname" placeholder="e.g. Mooncake">' +
     '<button class="button primary" type="submit">' + (joining ? "Join room" : "Create a room") + icon("arrow") + '</button></div>' +
@@ -194,7 +193,11 @@ function renderRating() {
   if (!waiting) {
     try {
       const saved = JSON.parse(sessionStorage.getItem("draft:" + roomId + ":" + room.round));
-      points = Array.isArray(saved) && saved.length === 10 ? saved : Array(10).fill(0);
+      points = Array.isArray(saved) && saved.length === 10 &&
+        saved.every((value) => Number.isInteger(value) && value >= 0) &&
+        saved.reduce((sum, value) => sum + value, 0) <= 100
+        ? saved.map((value) => Math.floor(value / POINT_STEP) * POINT_STEP)
+        : Array(10).fill(0);
     } catch {
       points = Array(10).fill(0);
     }
@@ -211,15 +214,15 @@ function renderRating() {
         '</span><h2>' + (ownRound ? "Your friends are voting" : "Vote locked in") + '</h2><p>' +
         (ownRound ? "Sit tight while the group rates you." : "The next round starts when the timer ends.") + '</p></section>'
       : '<section class="panel point-panel"><div class="point-heading"><div><h2>Rate their traits</h2>' +
-        '<p>Give out all 100 points. Use the 5-point buttons or type an exact amount.</p></div><div class="point-budget"><strong id="remaining">100</strong><span>points left</span></div></div>' +
+        '<p>Use +5 and −5 to give out all 100 points.</p></div><div class="point-budget"><strong id="remaining">100</strong><span>points left</span></div></div>' +
         '<div class="budget-bar" aria-hidden="true"><span id="budget-fill"></span></div>' +
         '<div class="point-grid">' + room.traits.map((id, index) => {
           const [name, , glyph] = TRAITS[id];
-          return '<div class="point-row" data-point-row="' + index + '"><label for="points-' + index + '"><span class="row-glyph" aria-hidden="true">' +
-            glyph + '</span>' + name + '</label><div class="stepper">' +
-            '<button type="button" data-index="' + index + '" data-step="remove"></button>' +
-            '<input id="points-' + index + '" data-point="' + index + '" type="text" inputmode="numeric" maxlength="3" value="' + points[index] + '">' +
-            '<button type="button" data-index="' + index + '" data-step="add"></button>' +
+          return '<div class="point-row" data-point-row="' + index + '"><span class="point-trait"><span class="row-glyph" aria-hidden="true">' +
+            glyph + '</span>' + name + '</span><div class="stepper">' +
+            '<button type="button" data-index="' + index + '" data-step="remove" aria-label="Remove 5 points from ' + name + '">−5</button>' +
+            '<span class="point-value" data-point="' + index + '">' + points[index] + '</span>' +
+            '<button type="button" data-index="' + index + '" data-step="add" aria-label="Add 5 points to ' + name + '">+5</button>' +
             '</div></div>';
         }).join("") + '</div>' +
         '<div class="point-actions"><div class="point-shortcuts">' +
@@ -232,24 +235,11 @@ function renderRating() {
   const grid = document.querySelector(".point-grid");
   grid.addEventListener("click", (event) => {
     const control = event.target.closest("[data-step]");
-    if (!control) return;
+    if (!control || control.disabled || !timeLeft()) return;
     const i = Number(control.dataset.index);
-    setPoints(i, points[i] + (control.dataset.step === "add" ? POINT_STEP : -POINT_STEP));
-    say(remaining() + " points left");
-  });
-  grid.addEventListener("input", (event) => {
-    const input = event.target;
-    if (!input.matches("[data-point]")) return;
-    const i = Number(input.dataset.point);
-    const digits = input.value.replace(/\D/g, "");
-    setPoints(i, Number(digits));
-    if (!digits) input.value = "";
-  });
-  grid.addEventListener("focusin", (event) => {
-    if (event.target.matches("[data-point]")) event.target.select();
-  });
-  grid.addEventListener("focusout", (event) => {
-    if (event.target.matches("[data-point]")) event.target.value = points[Number(event.target.dataset.point)];
+    points[i] += control.dataset.step === "add" ? POINT_STEP : -POINT_STEP;
+    updatePoints();
+    say(TRAITS[room.traits[i]][0] + " has " + points[i] + " points. " + remaining() + " points left.");
   });
   document.querySelector("#even").onclick = () => {
     points.fill(10);
@@ -257,11 +247,13 @@ function renderRating() {
     say("10 points per trait. Ready to lock in.");
   };
   document.querySelector("#fill").onclick = () => {
-    const rest = remaining();
+    const chunks = remaining() / POINT_STEP;
     const preferred = points.map((point, i) => ({ point, i })).filter(({ point }) => point > 0).map(({ i }) => i);
     const indices = preferred.length ? preferred : points.map((_, i) => i);
-    const share = Math.floor(rest / indices.length);
-    indices.forEach((i, position) => { points[i] += share + Number(position < rest % indices.length); });
+    const share = Math.floor(chunks / indices.length);
+    indices.forEach((i, position) => {
+      points[i] += POINT_STEP * (share + Number(position < chunks % indices.length));
+    });
     updatePoints();
     say("All 100 points assigned. Ready to lock in.");
   };
@@ -280,11 +272,6 @@ function remaining() {
   return 100 - points.reduce((sum, point) => sum + point, 0);
 }
 
-function setPoints(index, value) {
-  points[index] = Math.max(0, Math.min(points[index] + remaining(), value));
-  updatePoints();
-}
-
 function updatePoints() {
   const rest = remaining();
   sessionStorage.setItem("draft:" + roomId + ":" + room.round, JSON.stringify(points));
@@ -296,22 +283,11 @@ function updatePoints() {
   document.querySelector("#reset").disabled = rest === 100;
   document.querySelectorAll("[data-point-row]").forEach((row) => {
     const index = Number(row.dataset.pointRow);
-    const input = row.querySelector("input");
-    if (input.value !== String(points[index])) input.value = points[index];
+    row.querySelector("[data-point]").textContent = points[index];
     row.classList.toggle("has-points", points[index] > 0);
-    const name = TRAITS[room.traits[index]][0];
-    updateStep(row.querySelector('[data-step="remove"]'), Math.min(POINT_STEP, points[index]), name);
-    updateStep(row.querySelector('[data-step="add"]'), Math.min(POINT_STEP, rest), name);
+    row.querySelector('[data-step="remove"]').disabled = points[index] === 0;
+    row.querySelector('[data-step="add"]').disabled = rest === 0;
   });
-}
-
-function updateStep(button, amount, trait) {
-  const add = button.dataset.step === "add";
-  button.disabled = amount === 0;
-  const visibleAmount = amount || POINT_STEP;
-  button.textContent = (add ? "+" : "−") + visibleAmount;
-  button.setAttribute("aria-label", (add ? "Add " : "Remove ") + visibleAmount +
-    (visibleAmount === 1 ? " point" : " points") + (add ? " to " : " from ") + trait);
 }
 
 function renderReveal() {

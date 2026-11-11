@@ -16,10 +16,10 @@ each player has their own player pass. The local server stores rooms in
 1. Create a room, copy its invite link, and start once everyone has joined.
 2. Each player submits exactly ten traits. The ten traits with the most picks
    go through. A tie at the cutoff is resolved alphabetically.
-3. Each friend gets a 30-second turn. Everyone else can type whole numbers or
-   use the +5 and −5 controls to split 100 points. Split evenly sets all
-   traits to 10. Fill remaining divides the leftover budget among traits
-   already given points, or among all ten when the ballot is empty.
+3. Each friend gets a 30-second turn. Everyone else uses the +5 and −5
+   controls to give out 100 points. Split evenly sets all traits to 10.
+   Fill remaining divides the leftover budget in five-point chunks among
+   traits already given points, or among all ten when the ballot is empty.
 4. Lock in the vote before the timer reaches zero. Only locked votes count.
 5. The game reveals up to three players per trait, along with their average
    points per vote. Tied players share a rank, with join order breaking ties

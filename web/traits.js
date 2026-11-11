@@ -1,3 +1,5 @@
+export const POINT_STEP = 5;
+
 export const TRAITS = [
   ["Big Brain", "Always has a theory", "✧"],
   ["Capper", "The truth is flexible", "♧"],

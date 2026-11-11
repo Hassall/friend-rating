@@ -227,13 +227,14 @@ input::placeholder { color: #9484a5; }
   border: 1px solid var(--line); background: var(--surface); padding: 5px 6px 5px 8px;
 }
 .point-row.has-points { border-color: #5c5373; }
-.point-row label { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 740; line-height: 1.2; }
+.point-trait { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 740; line-height: 1.2; }
 .stepper { display: inline-flex; flex-shrink: 0; align-items: center; gap: 3px; }
-.stepper input {
-  height: 33px; width: 42px; border-radius: 6px; padding: 0; font-size: 14px;
-  text-align: center; font-variant-numeric: tabular-nums; font-weight: 800;
+.point-value {
+  display: grid; place-items: center; height: 33px; width: 42px; border: 1px solid var(--line);
+  border-radius: 6px; background: #120e1e; font-size: 14px;
+  font-variant-numeric: tabular-nums; font-weight: 800;
 }
-.has-points input { color: var(--lime); }
+.has-points .point-value { color: var(--lime); }
 .stepper button {
   display: grid; place-items: center; width: 35px; height: 33px; border-radius: 7px;
   border: 1px solid #594471; background: #302245; color: var(--text); font-size: 13px; font-weight: 750;
@@ -374,7 +375,7 @@ input::placeholder { color: #9484a5; }
   .trait-text small { display: none; }
   .point-panel { padding: 11px; }
   .point-budget { display: none; }
-  .stepper button, .stepper input { height: 39px; width: 43px; }
+  .stepper button, .point-value { height: 39px; width: 43px; }
   .point-actions {
     position: sticky; z-index: 2; bottom: 0; background: var(--panel); margin-top: 7px; padding-block: 6px;
     box-shadow: 0 -8px 10px #1b15289c;

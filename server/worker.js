@@ -143,9 +143,9 @@ function applyAction(room, member, action, data, now) {
     if (Object.hasOwn(votes, member.id)) return false;
     const points = data.points;
     if (!Array.isArray(points) || points.length !== TRAIT_COUNT ||
-        !points.every((point) => Number.isInteger(point) && point >= 0 && point <= 100) ||
+        !points.every((point) => Number.isInteger(point) && point >= 0 && point <= 100 && point % POINT_STEP === 0) ||
         points.reduce((sum, point) => sum + point, 0) !== 100) {
-      throw new GameError("Split exactly 100 points across the ten traits.");
+      throw new GameError("Give out all 100 points in steps of five.");
     }
     votes[member.id] = points;
     return true;
