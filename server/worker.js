@@ -1,5 +1,5 @@
 const INVITE_LIMIT = 20;
-const ROUND_MS = 30_000;
+const LEGACY_ROUND_MS = 30_000;
 const PICK_MS = 120_000;
 const BREAK_MS = 4_000;
 const REVEAL_MS = 5_000;
@@ -7,13 +7,14 @@ const TRAIT_COUNT = 10;
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const LOBBY_LIFETIME_MS = 15 * MINUTE_MS;
-const GAME_LIFETIME_MS = 30 * MINUTE_MS;
+const GAME_LIFETIME_MS = HOUR_MS;
 const RECAP_LIFETIME_MS = 10 * MINUTE_MS;
 const LOBBY_HEARTBEAT_MS = 15_000;
 const HOST_TIMEOUT_MS = 60_000;
 const ROOM_LIMIT = 6;
 const LEGACY_EXPIRY = Date.UTC(2026, 10, 13);
-const DEFAULT_TRAITS = ["Capper", "Chaotic", "Clutch", "Funny", "Good Listener", "Hype Friend", "Lore Keeper", "Night Owl", "Storyteller", "Yapper"];
+const LEGACY_DEFAULT_TRAITS = ["Capper", "Chaotic", "Clutch", "Funny", "Good Listener", "Hype Friend", "Lore Keeper", "Night Owl", "Storyteller", "Yapper"];
+const DEFAULT_TRAITS = ["Chill", "Creative", "Dependable", "Funny", "Good Listener", "Honest", "Kind", "Playful", "Storyteller", "Supportive"];
 const TOKEN = /^[a-f0-9]{32}$/;
 const HEADERS = {
   "Cache-Control": "no-store",
@@ -56,15 +57,17 @@ function player(name, pass, now) {
   return { id: randomId(), name, pass, picks: null, seen: now };
 }
 
-function topTraits(players) {
+function topTraits(room) {
+  const pool = room.traitPool ?? LEGACY_TRAIT_IDS;
+  const defaults = room.traitPool ? DEFAULT_TRAITS : LEGACY_DEFAULT_TRAITS;
   const counts = TRAITS.map(() => 0);
-  for (const member of players) {
+  for (const member of room.players) {
     for (const trait of member.picks ?? []) counts[trait]++;
   }
   const byName = (a, b) => TRAITS[a][0].localeCompare(TRAITS[b][0], "en");
-  return counts.map((_, trait) => trait)
+  return [...pool]
     .sort((a, b) => counts[b] - counts[a] ||
-      (!counts[a] && Number(DEFAULT_TRAITS.includes(TRAITS[b][0])) - Number(DEFAULT_TRAITS.includes(TRAITS[a][0]))) ||
+      (!counts[a] && Number(defaults.includes(TRAITS[b][0])) - Number(defaults.includes(TRAITS[a][0]))) ||
       byName(a, b))
     .slice(0, TRAIT_COUNT).sort(byName);
 }
@@ -83,12 +86,12 @@ function timeline(room, now) {
   if (!room.ratingAt) return { phase: "traits" };
   if (now < room.ratingAt) return { phase: "starting", deadline: room.ratingAt };
 
-  const round = Math.floor((now - room.ratingAt) / ROUND_MS);
+  const round = Math.floor((now - room.ratingAt) / LEGACY_ROUND_MS);
   if (round < room.players.length) {
-    return { phase: "rating", round, deadline: room.ratingAt + (round + 1) * ROUND_MS };
+    return { phase: "rating", round, deadline: room.ratingAt + (round + 1) * LEGACY_ROUND_MS };
   }
 
-  const revealAt = room.ratingAt + room.players.length * ROUND_MS;
+  const revealAt = room.ratingAt + room.players.length * LEGACY_ROUND_MS;
   const ranking = Math.floor((now - revealAt) / REVEAL_MS);
   if (ranking < TRAIT_COUNT) return { phase: "reveal", ranking, deadline: revealAt + (ranking + 1) * REVEAL_MS };
   return { phase: "results" };
@@ -110,7 +113,7 @@ function advance(room, now) {
     const { phase, deadline, round, next } = room.stage;
     if (phase === "traits" && (active.length < 2 || now >= deadline || active.every((member) => member.picks))) {
       room.players = active;
-      room.traits = topTraits(active);
+      room.traits = topTraits(room);
       room.stage = { phase: "starting", deadline: Math.min(now, deadline) + BREAK_MS, next: 0 };
     } else if ((phase === "starting" || phase === "break") && now >= deadline) {
       const target = room.players.findIndex((member, index) => index >= next && !member.left);
@@ -118,7 +121,7 @@ function advance(room, now) {
         room.stage = { phase: "reveal", revealAt: deadline };
         room.expiresAt = Math.min(room.expiresAt, deadline + TRAIT_COUNT * REVEAL_MS + RECAP_LIFETIME_MS);
       } else {
-        room.stage = { phase: "rating", round: target, deadline: deadline + ROUND_MS };
+        room.stage = { phase: "rating", round: target, deadline: deadline + (room.roundMs ?? LEGACY_ROUND_MS) };
       }
     } else if (phase === "rating") {
       const eligible = active.filter((member) => member !== room.players[round]);
@@ -171,6 +174,8 @@ function snapshot(room, member, now, revision) {
     me: member.id,
     host: currentHost(room),
     traits: room.traits,
+    traitPool: room.traitPool ?? LEGACY_TRAIT_IDS,
+    roundSeconds: (room.roundMs ?? LEGACY_ROUND_MS) / 1000,
     picks: member.picks,
     players: room.players.map(({ id, name, picks, left }) => ({ id, name, ready: Boolean(picks), left: Boolean(left) })),
   };
@@ -203,6 +208,8 @@ function applyAction(room, member, action, data, now) {
     if (phase !== "lobby") return false;
     if (room.players.length < 2) throw new GameError("Invite at least one friend first.");
     room.started = true;
+    room.roundMs = RATING_SECONDS * 1000;
+    room.traitPool = TRAIT_IDS;
     room.stage = { phase: "traits", deadline: now + PICK_MS };
     room.expiresAt = now + GAME_LIFETIME_MS;
     return true;
@@ -217,12 +224,12 @@ function applyAction(room, member, action, data, now) {
     if (member.picks) return false;
     const picks = data.picks;
     if (!Array.isArray(picks) || picks.length !== TRAIT_COUNT || new Set(picks).size !== TRAIT_COUNT ||
-        !picks.every((id) => Number.isInteger(id) && id >= 0 && id < TRAITS.length)) {
+        !picks.every((id) => (room.traitPool ?? LEGACY_TRAIT_IDS).includes(id))) {
       throw new GameError("Choose exactly 10 different traits.");
     }
     member.picks = picks;
     if (!room.stage && room.players.every((participant) => participant.picks)) {
-      room.traits = topTraits(room.players);
+      room.traits = topTraits(room);
       room.ratingAt = now + REVEAL_MS;
     }
     return true;

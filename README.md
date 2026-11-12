@@ -18,7 +18,7 @@ each player has their own player pass. The local server stores rooms in
    your picks until the timer expires or everyone locks in. Only locked picks
    count. The ten most popular traits go through, with alphabetical tiebreaks
    for traits that received votes. Preset traits fill any remaining slots.
-3. Each friend gets a 30-second turn. Everyone else uses the +5 and −5
+3. Each friend gets a two-minute turn. Everyone else uses the +5 and −5
    controls to give out 100 points. Split evenly sets all traits to 10.
    Fill remaining divides the leftover budget in five-point chunks among
    traits already given points, or among all ten when the ballot is empty.
@@ -42,7 +42,7 @@ timers advance independently of the host.
 **Leave room** frees your seat. If the host leaves, the first remaining
 player takes over. A departing player is skipped in future rounds, and
 closed rounds keep their scores. The room closes when the last player leaves.
-An unstarted room expires after 15 minutes. A started game has a 30-minute
+An unstarted room expires after 15 minutes. A started game has a one-hour
 limit, and its recap expires 10 minutes after the rankings finish or at the
 game limit, whichever comes first. The server allows six creations per
 network address per clock hour and removes expired records as rooms are created.

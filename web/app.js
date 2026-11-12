@@ -1,4 +1,4 @@
-import { POINT_STEP, TRAITS } from "./traits.js";
+import { LEGACY_TRAIT_IDS, POINT_STEP, RATING_SECONDS, TRAITS, TRAIT_IDS } from "./traits.js";
 
 const app = document.querySelector("#app");
 const header = document.querySelector("#header-status");
@@ -87,7 +87,7 @@ function stageNav(step) {
 function renderWelcome(message = "") {
   setStatus();
   const joining = Boolean(roomId);
-  const sample = [3, 9, 11, 13, 18, 22, 23, 24, 1, 2];
+  const sample = TRAIT_IDS.slice(0, 10);
   app.innerHTML = '<div class="welcome"><section class="welcome-copy">' +
     '<div class="kicker"><span></span>' + (joining ? "INVITE TO PLAY" : "THE GROUP CHAT PARTY GAME") + '</div>' +
     '<h1>' + (joining ? 'You’re <em>invited.</em>' : 'Rate your<br><em>friends.</em>') + '</h1>' +
@@ -105,7 +105,7 @@ function renderWelcome(message = "") {
     radar(sample, [5, 23, 9, 16, 4, 19, 5, 11, 4, 4], 25) + '</div></aside></div>' +
     '<section class="how" aria-label="How to play">' +
     [['people', "Invite your crew", "Share one private link."], ['tick', "Pick 10 traits", "The most popular picks make the cut."],
-     ['clock', "Rate each friend", "Give out 100 points in 30 seconds."], ['trophy', "See the rankings", "Reveal the top three for each trait."]]
+     ['clock', "Rate each friend", "Give out 100 points in two minutes."], ['trophy', "See the rankings", "Reveal the top three for each trait."]]
       .map(([glyph, title, line]) => '<article class="how-step"><div class="how-icon">' + icon(glyph) +
         '</div><div><h2>' + title + '</h2><p>' + line + '</p></div></article>').join("") + '</section>';
   notice(message);
@@ -154,13 +154,14 @@ async function copyInvite(url, control) {
 
 function renderTraits() {
   const locked = Boolean(room.picks);
+  const pool = room.traitPool ?? LEGACY_TRAIT_IDS;
   if (locked) chosen = new Set(room.picks);
   app.innerHTML = stageNav(1) + '<div class="page-heading"><div><h1>' +
     (locked ? "Your picks are in." : "Pick 10 traits.") + '</h1><p>' +
     (locked ? "Review your picks or unlock them while selection is open." : "Choose the traits you want in the game. The ten most popular make the cut.") +
     '</p></div><span class="small-pill ready-count" id="ready-count"></span></div>' +
     '<section class="panel trait-panel" aria-label="Available traits"><div class="trait-grid">' +
-    sortedTraits.map(({ index }) => {
+    sortedTraits.filter(({ index }) => pool.includes(index)).map(({ index }) => {
       const [name, description, glyph] = TRAITS[index];
       return (
       '<button class="trait-choice" type="button" data-trait="' + index + '" aria-pressed="' + chosen.has(index) + '"' +
@@ -204,8 +205,10 @@ function updateChoices() {
 }
 
 function renderStarting() {
+  const duration = room.roundSeconds ?? RATING_SECONDS;
+  const roundTime = duration === RATING_SECONDS ? "two minutes" : duration + " seconds";
   app.innerHTML = stageNav(2) + '<section class="panel centered transition-panel"><span class="panel-icon">✦</span>' +
-    '<h1>The traits are locked.</h1><p>Get ready to rate. Each friend gets 30 seconds in the spotlight.</p>' +
+    '<h1>The traits are locked.</h1><p>Get ready to rate. Each friend gets ' + roundTime + ' in the spotlight.</p>' +
     '<ul class="locked-traits">' + room.traits.map((id) => '<li>' + TRAITS[id][0] + '</li>').join("") +
     '</ul><div class="countdown large" data-clock="4"></div></section>';
 }
@@ -242,7 +245,7 @@ function renderRating() {
     (room.round + 1) + ' of ' + room.players.length + '</div><h1>' +
     (ownRound ? "You’re in the spotlight." : "Rate " + html(target.name) + ".") + '</h1></div></div>' +
     '<div class="rating-layout"><aside class="panel rating-aside">' + avatar(target, "avatar-large") +
-    '<strong class="spotlight-name">' + html(target.name) + '</strong><div class="countdown" data-clock="30"></div>' +
+    '<strong class="spotlight-name">' + html(target.name) + '</strong><div class="countdown" data-clock="' + (room.roundSeconds ?? RATING_SECONDS) + '"></div>' +
     '<p class="muted">Time left</p><span class="small-pill" id="vote-count"></span>' +
     (ownRound || locked ? "" : '<span class="mobile-budget" id="remaining-mobile"></span>') + '</aside>' +
     (ownRound
@@ -457,7 +460,7 @@ function updateTimer() {
     clock.textContent = duration >= 30 ? Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0") : seconds;
     clock.setAttribute("aria-label", seconds + " seconds left");
     clock.style.setProperty("--progress", Math.min(100, ms / (duration * 10)) + "%");
-    clock.classList.toggle("urgent", seconds <= 5 && clock.dataset.clock === "30");
+    clock.classList.toggle("urgent", seconds <= 5 && room.phase === "rating");
   }
   const reveal = document.querySelector("#reveal-fill");
   if (reveal) reveal.style.width = (ms / 50) + "%";
