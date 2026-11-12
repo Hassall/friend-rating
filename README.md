@@ -14,8 +14,15 @@ each player has their own player pass. The local server stores rooms in
 ## Play
 
 1. Create a room, copy its invite link, and start once everyone has joined.
-2. The host sets how long players have to lock in ten traits. The default is
-   two minutes. You can review or unlock
+2. The host chooses **Default traits** or **Custom traits**. In custom mode,
+   each player can suggest up to five traits during a separate timed round.
+   The host can set the suggestion timer from 30 seconds to five minutes.
+   The round closes at the deadline or once everyone is done. It treats
+   differences in capitalization, punctuation, spacing, and accents as
+   duplicates. If fewer than ten traits were added, default traits fill
+   the remaining spots.
+   The host also sets how long players have to lock in ten traits. The
+   default is two minutes. You can review or unlock
    your picks until the timer expires or everyone locks in. Only locked picks
    count. The ten most popular traits go through, with alphabetical tiebreaks
    for traits that received votes. Preset traits fill any remaining slots.
@@ -53,7 +60,8 @@ timers advance independently of the host.
 player takes over. A departing player is skipped in future rounds, and
 closed rounds keep their scores. The room closes when the last player leaves.
 An unstarted room expires after 15 minutes. A started game has a one-hour
-limit plus five minutes per enabled optional round. Its recap expires
+limit plus the custom suggestion time and five minutes per enabled
+optional round. Its recap expires
 10 minutes after the rankings finish or at the
 game limit, whichever comes first. The server allows six creations per
 network address per clock hour and removes expired records as rooms are created.

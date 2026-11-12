@@ -1,4 +1,5 @@
-import { DEFAULT_PICK_SECONDS, LEGACY_TRAIT_IDS, PICK_SECONDS_OPTIONS, POINT_STEP, RATING_SECONDS, TRAITS, TRAIT_IDS } from "./traits.js";
+import { CUSTOM_TRAIT_LENGTH, CUSTOM_TRAIT_LIMIT, CUSTOM_TRAIT_OFFSET, DEFAULT_PICK_SECONDS, DEFAULT_SUGGEST_SECONDS,
+  LEGACY_TRAIT_IDS, PICK_SECONDS_OPTIONS, POINT_STEP, RATING_SECONDS, TRAITS, TRAIT_IDS } from "./traits.js";
 import { LIVE_ORIGIN, PAGES_ORIGIN } from "./origins.js";
 
 const app = document.querySelector("#app");
@@ -20,8 +21,6 @@ const ROOM_API_ORIGIN = location.origin === PAGES_ORIGIN ? LIVE_ORIGIN : "";
 const roomFragment = location.pathname === "/" && location.hash.match(/^#r=([A-Za-z0-9_-]{16})$/)?.[1];
 if (roomFragment) history.replaceState(null, "", invitePath(roomFragment));
 const roomPath = location.pathname.match(/^\/(?:r|room)\/([a-f0-9]{32}|[A-Za-z0-9_-]{16})$/);
-const sortedTraits = TRAITS.map(([name], index) => ({ name, index }))
-  .sort((a, b) => a.name.localeCompare(b.name, "en"));
 let roomId = roomPath?.[1];
 let pass = roomId ? localStorage.getItem("player:" + roomId) : null;
 let room = null;
@@ -37,6 +36,10 @@ let syncFailed = false;
 function html(value) {
   const escapes = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
   return String(value).replace(/[&<>"']/g, (character) => escapes[character]);
+}
+
+function traitDetails(id) {
+  return TRAITS[id] ?? [room?.customTraits?.[id - CUSTOM_TRAIT_OFFSET] ?? "Custom trait", "Suggested by your group", "✦"];
 }
 
 function icon(name, size = 18) {
@@ -78,10 +81,12 @@ function avatar(member, size = "") {
 
 function stageNav(step) {
   const stages = ["Lobby", "Pick traits", "Rate friends"];
+  if (step !== 0 && room?.options?.custom) stages.splice(1, 0, "Add traits");
   if (step !== 0 && room?.options?.mostLikely) stages.push("Most likely to");
   if (step !== 0 && room?.options?.guessing) stages.push("Guess the winners");
   stages.push("Results");
-  const current = typeof step === "string" ? stages.indexOf(step) : step === 3 ? stages.length - 1 : step;
+  const current = typeof step === "string" ? stages.indexOf(step)
+    : step === 3 ? stages.length - 1 : stages.indexOf(["Lobby", "Pick traits", "Rate friends"][step]);
   return '<nav class="stage-nav" aria-label="Game progress"><ol>' + stages.map((stage, i) =>
     '<li class="' + (i === current ? "current" : i < current ? "past" : "") + '"' +
     (i === current ? ' aria-current="step"' : "") + '><span class="stage-number">' +
@@ -135,11 +140,12 @@ function renderLobby() {
     '<button class="button secondary" id="copy">' + icon("link") + 'Copy invite link</button>' +
     (url !== directUrl ? '<button type="button" class="button compact quiet" id="copy-direct">Copy direct link</button>' : '') +
     '<fieldset id="room-settings" class="room-settings"' + (isHost ? '' : ' disabled') + '><legend>Game settings</legend>' +
-      '<div class="pick-setting"><label for="pick-seconds">Trait selection time</label><select id="pick-seconds" name="pickSeconds">' +
-      PICK_SECONDS_OPTIONS.map((seconds) => '<option value="' + seconds + '"' +
-        (seconds === (room.pickSeconds ?? DEFAULT_PICK_SECONDS) ? ' selected' : '') + '>' +
-        (seconds < 60 ? seconds + " seconds" : seconds / 60 + (seconds === 60 ? " minute" : " minutes")) + '</option>').join("") +
-      '</select></div><fieldset class="room-options"><legend>Optional rounds</legend>' +
+      '<div class="pick-setting"><label for="trait-source">Trait list</label><select id="trait-source" name="custom">' +
+      '<option value="default">Default traits</option><option value="custom">Custom traits</option></select></div>' +
+      '<div id="suggest-setting"' + (room.options?.custom ? '' : ' hidden') + '>' +
+      timeSetting("suggestSeconds", "Time to add traits", room.suggestSeconds ?? DEFAULT_SUGGEST_SECONDS) + '</div>' +
+      timeSetting("pickSeconds", "Trait selection time", room.pickSeconds ?? DEFAULT_PICK_SECONDS) +
+      '<fieldset class="room-options"><legend>Optional rounds</legend>' +
       '<label><input type="checkbox" name="mostLikely"' + (room.options?.mostLikely ? ' checked' : '') +
       '><span>Most Likely To<small>Vote on 10 random prompts.</small></span></label>' +
       '<label><input type="checkbox" name="guessing"' + (room.options?.guessing ? ' checked' : '') +
@@ -154,7 +160,8 @@ function renderLobby() {
   const settings = document.querySelector("#room-settings");
   const start = document.querySelector("#start");
   if (isHost) settings.addEventListener("change", async ({ target }) => {
-    const value = target.name === "pickSeconds" ? Number(target.value) : target.checked;
+    const value = target.name === "custom" ? target.value === "custom"
+      : target.tagName === "SELECT" ? Number(target.value) : target.checked;
     const focused = document.activeElement === target;
     start.disabled = true;
     await send("settings", { [target.name]: value }, settings);
@@ -164,19 +171,89 @@ function renderLobby() {
   });
   start?.addEventListener("click", (event) => send("start", {
     pickSeconds: Number(settings.elements.namedItem("pickSeconds").value),
+    suggestSeconds: Number(settings.elements.namedItem("suggestSeconds").value),
+    custom: settings.elements.namedItem("custom").value === "custom",
     mostLikely: settings.elements.namedItem("mostLikely").checked,
     guessing: settings.elements.namedItem("guessing").checked,
   }, event.currentTarget));
 }
 
+function timeSetting(name, label, value) {
+  return '<div class="pick-setting"><label for="' + name + '">' + label + '</label><select id="' + name + '" name="' + name + '">' +
+    PICK_SECONDS_OPTIONS.map((seconds) => '<option value="' + seconds + '"' + (seconds === value ? ' selected' : '') + '>' +
+      (seconds < 60 ? seconds + " seconds" : seconds / 60 + (seconds === 60 ? " minute" : " minutes")) + '</option>').join("") +
+    '</select></div>';
+}
+
 function syncLobbySettings() {
   const settings = document.querySelector("#room-settings");
   if (!settings || busy) return;
-  const pickTime = settings.elements.namedItem("pickSeconds");
-  const savedTime = String(room.pickSeconds ?? DEFAULT_PICK_SECONDS);
-  if (pickTime.value !== savedTime) pickTime.value = savedTime;
+  settings.elements.namedItem("pickSeconds").value = String(room.pickSeconds ?? DEFAULT_PICK_SECONDS);
+  settings.elements.namedItem("suggestSeconds").value = String(room.suggestSeconds ?? DEFAULT_SUGGEST_SECONDS);
+  settings.elements.namedItem("custom").value = room.options?.custom ? "custom" : "default";
+  settings.querySelector("#suggest-setting").hidden = !room.options?.custom;
   settings.elements.namedItem("mostLikely").checked = Boolean(room.options?.mostLikely);
   settings.elements.namedItem("guessing").checked = Boolean(room.options?.guessing);
+}
+
+function renderSuggestions() {
+  app.innerHTML = stageNav("Add traits") + '<div class="page-heading"><div><h1>Add your own traits.</h1>' +
+    '<p>What describes your group? Add up to five traits, then vote together on the list.</p></div>' +
+    '<span class="small-pill ready-count" id="suggest-ready-count"></span></div>' +
+    '<section class="panel suggest-panel"><div class="selection-bar"><div class="pick-meter"><strong id="suggest-quota"></strong></div>' +
+    '<div class="pick-clock">' + icon("clock", 18) + '<div><small>Time left</small>' +
+    '<span data-clock="' + room.suggestSeconds + '"></span></div></div>' +
+    '<button id="suggest-ready" type="button" class="button secondary"></button></div>' +
+    '<form id="suggest-form"><label for="suggest-name">Your suggestion</label><div class="entry-controls">' +
+    '<input id="suggest-name" name="name" maxlength="' + CUSTOM_TRAIT_LENGTH + '" placeholder="e.g. Hype Friend" autocomplete="off" required>' +
+    '<button class="button primary" id="suggest-add" type="submit">Add trait</button></div></form>' +
+    '<div id="error" role="alert" class="error"></div>' +
+    '<h2>Group suggestions</h2><p class="muted" id="suggest-hint"></p>' +
+    '<ul class="suggest-list" id="suggest-list" aria-label="Group suggestions"></ul></section>';
+  const form = document.querySelector("#suggest-form");
+  const input = form.elements.namedItem("name");
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (busy || !timeLeft()) return;
+    const name = input.value.trim();
+    if (!name) return;
+    if (await send("suggest-trait", { name }, document.querySelector("#suggest-add"))) {
+      input.value = "";
+      if (!input.disabled) input.focus();
+    } else if (!input.disabled) input.focus();
+  });
+  document.querySelector("#suggest-ready").addEventListener("click", (event) =>
+    send("ready-traits", { ready: !room.suggestionsReady }, event.currentTarget));
+  document.querySelector("#suggest-list").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-remove-trait]");
+    if (button) send("remove-trait", { name: room.customTraits[Number(button.dataset.removeTrait)] }, button);
+  });
+}
+
+function syncSuggestions() {
+  const list = document.querySelector("#suggest-list");
+  if (!list || busy) return;
+  const mine = new Set(room.mySuggestions);
+  const locked = room.suggestionsReady || !timeLeft();
+  const full = mine.size >= CUSTOM_TRAIT_LIMIT;
+  document.querySelector("#suggest-ready-count").textContent = room.suggestionsReadyCount + " / " + room.players.length + " done";
+  document.querySelector("#suggest-quota").textContent = mine.size + " / " + CUSTOM_TRAIT_LIMIT + " added";
+  document.querySelector("#suggest-hint").textContent = room.customTraits.length >= 10
+    ? "Only group suggestions will appear in the vote."
+    : "If the group suggests fewer than 10, default traits will fill the remaining spots.";
+  document.querySelector("#suggest-name").disabled = locked || full;
+  document.querySelector("#suggest-add").disabled = locked || full;
+  const ready = document.querySelector("#suggest-ready");
+  ready.textContent = room.suggestionsReady ? "Keep adding" : "Done adding";
+  ready.disabled = !timeLeft();
+  const key = JSON.stringify([room.customTraits, room.mySuggestions, locked]);
+  if (key === list.dataset.content) return;
+  list.dataset.content = key;
+  list.innerHTML = room.customTraits.map((name, i) => ({ name, i }))
+    .sort((a, b) => a.name.localeCompare(b.name, "en"))
+    .map(({ name, i }) => '<li><span>' + html(name) + '</span>' +
+      (mine.has(i) ? '<button type="button" data-remove-trait="' + i + '" aria-label="Remove ' + html(name) + '"' +
+      (locked ? ' disabled' : '') + '>×</button>' : '') + '</li>').join("");
 }
 
 async function copyInvite(url, control) {
@@ -207,13 +284,13 @@ function renderTraits() {
       '<span data-clock="' + (room.pickSeconds ?? DEFAULT_PICK_SECONDS) + '"></span></div></div>' : "") +
     (locked ? '<button id="unlock-picks" class="button secondary">Unlock picks</button>' :
       '<button id="submit-picks" class="button primary">Submit picks' + icon("arrow") + '</button>') + '</div>' +
-    '<section class="panel trait-panel" aria-label="Available traits"><div class="trait-grid">' +
-    sortedTraits.filter(({ index }) => pool.includes(index)).map(({ index }) => {
-      const [name, description, glyph] = TRAITS[index];
+    '<section class="panel trait-panel" aria-label="Available traits"><div class="trait-grid' + (room.options?.custom ? ' custom-vote-grid' : '') + '">' +
+    [...pool].sort((a, b) => traitDetails(a)[0].localeCompare(traitDetails(b)[0], "en")).map((index) => {
+      const [name, description, glyph] = traitDetails(index);
       return (
       '<button class="trait-choice" type="button" data-trait="' + index + '" aria-pressed="' + chosen.has(index) + '"' +
       (locked ? " disabled" : "") + '><span class="trait-glyph" aria-hidden="true">' + glyph +
-      '</span><span class="trait-text"><strong>' + name + '</strong><small>' + description +
+      '</span><span class="trait-text"><strong>' + html(name) + '</strong><small>' + description +
       '</small></span><span class="pick-check">' + icon("tick", 14) + '</span></button>');
     }).join("") + '</div></section>' +
     '<div id="error" role="alert" class="error"></div>';
@@ -251,7 +328,7 @@ function renderStarting() {
   const roundTime = duration === RATING_SECONDS ? "two minutes" : duration + " seconds";
   app.innerHTML = stageNav(2) + '<section class="panel centered transition-panel"><span class="panel-icon">✦</span>' +
     '<h1>The traits are locked.</h1><p>Get ready to rate. Each friend gets ' + roundTime + ' in the spotlight.</p>' +
-    '<ul class="locked-traits">' + room.traits.map((id) => '<li>' + TRAITS[id][0] + '</li>').join("") +
+    '<ul class="locked-traits">' + room.traits.map((id) => '<li>' + html(traitDetails(id)[0]) + '</li>').join("") +
     '</ul><div class="countdown large" data-clock="4"></div></section>';
 }
 
@@ -303,7 +380,8 @@ function renderRating() {
           : '<p>Use +5 and −5 to give out all 100 points.</p></div><div class="point-budget"><strong id="remaining">100</strong><span>points left</span></div></div>' +
             '<div class="budget-bar" aria-hidden="true"><span id="budget-fill"></span></div>') +
         '<div class="point-grid' + (locked ? ' locked-ballot' : '') + '">' + room.traits.map((id, index) => {
-          const [name, , glyph] = TRAITS[id];
+          const [label, , glyph] = traitDetails(id);
+          const name = html(label);
           return '<div class="point-row" data-point-row="' + index + '"><span class="point-trait"><span class="row-glyph" aria-hidden="true">' +
             glyph + '</span>' + name + '</span><div class="stepper">' +
             '<button type="button" data-index="' + index + '" data-step="remove" aria-label="Remove 5 points from ' + name + '"' + (locked ? " disabled" : "") + '>−5</button>' +
@@ -328,7 +406,7 @@ function renderRating() {
     const i = Number(control.dataset.index);
     points[i] += control.dataset.step === "add" ? POINT_STEP : -POINT_STEP;
     updatePoints();
-    say(TRAITS[room.traits[i]][0] + " has " + points[i] + " points. " + remaining() + " points left.");
+    say(traitDetails(room.traits[i])[0] + " has " + points[i] + " points. " + remaining() + " points left.");
   });
   document.querySelector("#even").onclick = () => {
     points.fill(10);
@@ -423,11 +501,11 @@ function renderChoice() {
 }
 
 function renderReveal() {
-  const [name, , glyph] = TRAITS[room.traits[room.ranking]];
+  const [name, , glyph] = traitDetails(room.traits[room.ranking]);
   app.innerHTML = stageNav(3) + '<section class="panel reveal centered"><div class="confetti" aria-hidden="true">' +
     Array.from({ length: 18 }, (_, i) => '<i style="--piece:' + i + ';--confetti:' + PALETTE[i % PALETTE.length] + '"></i>').join("") +
     '</div><div class="round-label">Trait rankings · ' + (room.ranking + 1) + ' of 10</div>' +
-    '<div class="reveal-glyph" aria-hidden="true">' + glyph + '</div><h1>' + name + '</h1>' +
+    '<div class="reveal-glyph" aria-hidden="true">' + glyph + '</div><h1>' + html(name) + '</h1>' +
     (room.leaders.length ? '<p>Top three by average points</p>' + rankingList(room.leaders) : '<p>No votes this time.</p>') +
     '<div class="reveal-track" aria-hidden="true"><span id="reveal-fill"></span></div></section>';
 }
@@ -462,9 +540,19 @@ function radar(traits, scores, max) {
   const labels = traits.map((id, i) => {
     const [x, y] = position(i, radius + 13);
     const alignment = x < centerX - 4 ? "end" : x > centerX + 4 ? "start" : "middle";
-    const words = TRAITS[id][0].split(" ");
+    const words = traitDetails(id)[0].split(" ").flatMap((word) => {
+      if (id < CUSTOM_TRAIT_OFFSET) return [word];
+      const chars = Array.from(word);
+      return chars.length > 12 ? [chars.slice(0, 12).join(""), chars.slice(12).join("")] : [word];
+    });
+    if (id >= CUSTOM_TRAIT_OFFSET) {
+      for (let j = 0; j + 1 < words.length;) {
+        if (Array.from(words[j] + " " + words[j + 1]).length <= 12) words.splice(j, 2, words[j] + " " + words[j + 1]);
+        else j++;
+      }
+    }
     return '<text class="radar-label" x="' + x + '" y="' + (y + 4 - (words.length - 1) * 6) + '" text-anchor="' + alignment + '">' +
-      words.map((word, line) => '<tspan x="' + x + '" dy="' + (line ? 13 : 0) + '">' + word + '</tspan>').join("") + '</text>';
+      words.map((word, line) => '<tspan x="' + x + '" dy="' + (line ? 13 : 0) + '">' + html(word) + '</tspan>').join("") + '</text>';
   }).join("");
   const radii = scores.map((score) => radius * score / max);
   const shape = '<polygon class="radar-fill" points="' + polygon(radii) + '"/>';
@@ -487,7 +575,7 @@ function renderResults() {
     '<section class="panel all-rankings"><div class="panel-heading"><h2>' + icon("trophy") + 'Trait rankings</h2>' +
     '<span class="muted ranking-caption">Average points per vote</span></div><div class="ranking-grid">' +
     room.traits.map((id, i) =>
-      '<article><h3><span class="row-glyph" aria-hidden="true">' + TRAITS[id][2] + '</span>' + TRAITS[id][0] + '</h3>' +
+      '<article><h3><span class="row-glyph" aria-hidden="true">' + traitDetails(id)[2] + '</span>' + html(traitDetails(id)[0]) + '</h3>' +
       (room.rankings[i].length ? rankingList(room.rankings[i]) : '<p class="muted">No votes</p>') + '</article>'
     ).join("") + '</div></section>' + renderExtraResults();
 }
@@ -556,7 +644,7 @@ function playerProfile(member, max) {
     '<h2>' + html(member.name) + '’s stats</h2><span class="small-pill">' + voteLabel(result.votes) + '</span></div>' +
     (result.votes ? '<div class="result-scores">' + radar(room.traits, scores, max) +
       '<ul aria-label="Average points per trait">' + room.traits.map((id, i) =>
-        '<li><span>' + TRAITS[id][0] + '</span><strong>' + Number(scores[i].toFixed(1)) + '</strong></li>').join("") + '</ul></div>' +
+        '<li><span>' + html(traitDetails(id)[0]) + '</span><strong>' + Number(scores[i].toFixed(1)) + '</strong></li>').join("") + '</ul></div>' +
       chartScale(max) : '<p class="empty-result">No votes were submitted for this player.</p>') + '</section></div>';
 }
 
@@ -588,7 +676,7 @@ function updateTimer() {
   const reveal = document.querySelector("#reveal-fill");
   if (reveal) reveal.style.width = (ms / 50) + "%";
   if (room?.deadline && !ms) {
-    document.querySelectorAll("#vote, #unlock, #submit-picks, #unlock-picks, #choice-lock, #choice-unlock")
+    document.querySelectorAll("#vote, #unlock, #submit-picks, #unlock-picks, #choice-lock, #choice-unlock, #suggest-add, #suggest-ready, #suggest-name, [data-remove-trait]")
       .forEach((control) => { control.disabled = true; });
   }
 }
@@ -602,7 +690,7 @@ function renderRoom() {
     const [oldPhase, oldRound] = viewKey.split(":");
     viewKey = key;
     const renderers = {
-      lobby: renderLobby, traits: renderTraits, starting: renderStarting, rating: renderRating,
+      lobby: renderLobby, suggestions: renderSuggestions, traits: renderTraits, starting: renderStarting, rating: renderRating,
       "most-likely": renderChoice, "guess-intro": renderGuessIntro, guessing: renderChoice,
       break: renderBreak, reveal: renderReveal, results: renderResults,
     };
@@ -613,6 +701,7 @@ function renderRoom() {
     }
   }
   syncLobbySettings();
+  syncSuggestions();
   const ready = document.querySelector("#ready-count");
   if (ready) ready.textContent = room.players.filter(({ ready }) => ready).length + " / " + room.players.length + " ready";
   const votes = document.querySelector("#vote-count");
@@ -699,11 +788,13 @@ async function send(action, data, control) {
     } else {
       accept(next, sentAt);
     }
+    return true;
   } catch (error) {
     notice(error.message);
   } finally {
     busy = false;
     if (control.isConnected) control.disabled = Boolean(action !== "leave" && room?.deadline && !timeLeft());
+    syncSuggestions();
   }
 }
 

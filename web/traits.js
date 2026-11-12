@@ -2,6 +2,10 @@ export const POINT_STEP = 5;
 export const RATING_SECONDS = 120;
 export const DEFAULT_PICK_SECONDS = 120;
 export const PICK_SECONDS_OPTIONS = [30, 60, 120, 180, 300];
+export const DEFAULT_SUGGEST_SECONDS = 120;
+export const CUSTOM_TRAIT_OFFSET = 1000;
+export const CUSTOM_TRAIT_LIMIT = 5;
+export const CUSTOM_TRAIT_LENGTH = 24;
 
 // Keep the original IDs for games that already picked their traits.
 const ORIGINAL_TRAITS = [

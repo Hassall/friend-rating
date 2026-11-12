@@ -61,17 +61,43 @@ async function player(name, pass, now, country, browserId) {
   return { id: randomId(), name, pass, picks: null, seen: now, joinedAt: now, country, browserKey };
 }
 
+function traitName(room, id) {
+  return id >= CUSTOM_TRAIT_OFFSET ? room.customTraits[id - CUSTOM_TRAIT_OFFSET].name : TRAITS[id][0];
+}
+
+function traitKey(name) {
+  return name.normalize("NFKD").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+function customTraitName(value) {
+  const name = typeof value === "string" ? value.normalize("NFKC").trim().replace(/\s+/g, " ") : "";
+  if (Array.from(name).length > CUSTOM_TRAIT_LENGTH || !/^[\p{L}\p{N}\p{M} '&’.,!?()\-]+$/u.test(name) || !/\p{L}/u.test(name)) {
+    throw new GameError("Use a short trait name with letters and up to 24 characters.");
+  }
+  return name;
+}
+
+function openTraitVoting(room, at) {
+  const names = new Set(room.customTraits.map(({ name }) => traitKey(name)));
+  room.traitPool = room.customTraits.map((_, i) => CUSTOM_TRAIT_OFFSET + i);
+  for (const name of DEFAULT_TRAITS) {
+    if (room.traitPool.length >= TRAIT_COUNT) break;
+    if (!names.has(traitKey(name))) room.traitPool.push(TRAIT_IDS.find((id) => TRAITS[id][0] === name));
+  }
+  room.stage = { phase: "traits", deadline: at + (room.pickSeconds ?? DEFAULT_PICK_SECONDS) * 1000 };
+}
+
 function topTraits(room) {
   const pool = room.traitPool ?? LEGACY_TRAIT_IDS;
   const defaults = room.traitPool ? DEFAULT_TRAITS : LEGACY_DEFAULT_TRAITS;
-  const counts = TRAITS.map(() => 0);
+  const counts = new Map(pool.map((id) => [id, 0]));
   for (const member of room.players) {
-    for (const trait of member.picks ?? []) counts[trait]++;
+    for (const trait of member.picks ?? []) counts.set(trait, (counts.get(trait) ?? 0) + 1);
   }
-  const byName = (a, b) => TRAITS[a][0].localeCompare(TRAITS[b][0], "en");
+  const byName = (a, b) => traitName(room, a).localeCompare(traitName(room, b), "en");
   return [...pool]
-    .sort((a, b) => counts[b] - counts[a] ||
-      (!counts[a] && Number(defaults.includes(TRAITS[b][0])) - Number(defaults.includes(TRAITS[a][0]))) ||
+    .sort((a, b) => counts.get(b) - counts.get(a) ||
+      (!room.customTraits && !counts.get(a) && Number(defaults.includes(traitName(room, b))) - Number(defaults.includes(traitName(room, a)))) ||
       byName(a, b))
     .slice(0, TRAIT_COUNT).sort(byName);
 }
@@ -141,7 +167,7 @@ function predictionQuestions(room) {
     const [best] = [...results].sort(compare);
     if (!best?.totals[index]) return [];
     return [{
-      question: "Who was rated highest for " + TRAITS[id][0] + "?",
+      question: "Who was rated highest for " + traitName(room, id) + "?",
       winners: results.filter((result) => compare(best, result) === 0).map(({ id }) => id),
     }];
   });
@@ -179,7 +205,9 @@ function advance(room, now) {
   let changed = false;
   while (true) {
     const { phase, deadline, round, next } = room.stage;
-    if (phase === "traits" && (active.length < 2 || now >= deadline || active.every((member) => member.picks))) {
+    if (phase === "suggestions" && (active.length < 2 || now >= deadline || active.every((member) => member.suggestionsReady))) {
+      openTraitVoting(room, Math.min(now, deadline));
+    } else if (phase === "traits" && (active.length < 2 || now >= deadline || active.every((member) => member.picks))) {
       room.players = active;
       room.traits = topTraits(room);
       room.stage = { phase: "starting", deadline: Math.min(now, deadline) + BREAK_MS, next: 0 };
@@ -289,10 +317,19 @@ function snapshot(room, member, now, revision) {
     traitPool: room.traitPool ?? LEGACY_TRAIT_IDS,
     roundSeconds: (room.roundMs ?? LEGACY_ROUND_MS) / 1000,
     pickSeconds: room.pickSeconds ?? DEFAULT_PICK_SECONDS,
+    suggestSeconds: room.suggestSeconds ?? DEFAULT_SUGGEST_SECONDS,
     options: room.options,
     picks: member.picks,
     players: room.players.map(({ id, name, picks, left }) => ({ id, name, ready: Boolean(picks), left: Boolean(left) })),
   };
+  if (room.customTraits) {
+    view.customTraits = room.customTraits.map(({ name }) => name);
+    if (time.phase === "suggestions") {
+      view.mySuggestions = room.customTraits.flatMap(({ author }, i) => author === member.id ? [i] : []);
+      view.suggestionsReady = Boolean(member.suggestionsReady);
+      view.suggestionsReadyCount = activePlayers(room).filter((player) => player.suggestionsReady).length;
+    }
+  }
   if (time.phase === "rating") {
     view.voted = Object.hasOwn(votes, member.id);
     view.ballot = votes[member.id] ?? null;
@@ -335,10 +372,14 @@ function updateSettings(room, data) {
     if (!PICK_SECONDS_OPTIONS.includes(data.pickSeconds)) throw new GameError("Choose an available trait selection time.");
     room.pickSeconds = data.pickSeconds;
   }
+  if (Object.hasOwn(data, "suggestSeconds")) {
+    if (!PICK_SECONDS_OPTIONS.includes(data.suggestSeconds)) throw new GameError("Choose an available suggestion time.");
+    room.suggestSeconds = data.suggestSeconds;
+  }
   room.options ??= { mostLikely: false, guessing: false };
-  for (const option of ["mostLikely", "guessing"]) {
+  for (const option of ["mostLikely", "guessing", "custom"]) {
     if (Object.hasOwn(data, option)) {
-      if (typeof data[option] !== "boolean") throw new GameError("Choose whether to include the optional round.");
+      if (typeof data[option] !== "boolean") throw new GameError("Choose an available game setting.");
       room.options[option] = data[option];
     }
   }
@@ -347,7 +388,7 @@ function updateSettings(room, data) {
 function applyAction(room, member, action, data, now) {
   const { phase, round } = timeline(room, now);
   if (action === "leave") {
-    if (phase === "lobby" || phase === "traits") room.players = room.players.filter((player) => player !== member);
+    if (phase === "lobby" || phase === "suggestions" || phase === "traits") room.players = room.players.filter((player) => player !== member);
     else member.left = true;
     if (currentHost(room) === member.id) room.host = activePlayers(room)[0]?.id;
     if (phase === "rating") delete (room.votes[round] ?? {})[member.id];
@@ -372,9 +413,37 @@ function applyAction(room, member, action, data, now) {
       room.questions = sampleQuestions(MOST_LIKELY_PROMPTS, QUESTION_COUNT);
       room.promptVotes = {};
     }
-    room.stage = { phase: "traits", deadline: now + (room.pickSeconds ?? DEFAULT_PICK_SECONDS) * 1000 };
+    const suggestionMs = room.options.custom ? (room.suggestSeconds ?? DEFAULT_SUGGEST_SECONDS) * 1000 : 0;
+    if (room.options.custom) room.customTraits = [];
+    room.stage = suggestionMs ? { phase: "suggestions", deadline: now + suggestionMs }
+      : { phase: "traits", deadline: now + (room.pickSeconds ?? DEFAULT_PICK_SECONDS) * 1000 };
     const extraRounds = Number(room.options.mostLikely) + Number(room.options.guessing);
-    room.expiresAt = now + GAME_LIFETIME_MS + extraRounds * QUESTION_COUNT * CHOICE_MS;
+    room.expiresAt = now + GAME_LIFETIME_MS + suggestionMs + extraRounds * QUESTION_COUNT * CHOICE_MS;
+    return true;
+  }
+
+  if (action === "suggest-trait" || action === "remove-trait" || action === "ready-traits") {
+    if (phase !== "suggestions") throw new GameError("Trait suggestions have closed.", 409);
+    if (action === "ready-traits") {
+      if (typeof data.ready !== "boolean") throw new GameError("Choose whether you’re done adding traits.");
+      member.suggestionsReady = data.ready;
+      return true;
+    }
+    if (member.suggestionsReady) throw new GameError("Choose Keep adding to edit your suggestions.");
+    if (action === "remove-trait") {
+      const index = room.customTraits.findIndex(({ key, author }) => key === traitKey(String(data.name ?? "")) && author === member.id);
+      if (index < 0) throw new GameError("You can only remove your own suggestions.", 403);
+      room.customTraits.splice(index, 1);
+      return true;
+    }
+    const name = customTraitName(data.name);
+    const key = traitKey(name);
+    const existing = room.customTraits.find((trait) => trait.key === key);
+    if (existing) throw new GameError("“" + existing.name + "” is already on the list.", 409);
+    if (room.customTraits.filter(({ author }) => author === member.id).length >= CUSTOM_TRAIT_LIMIT) {
+      throw new GameError("You can add up to five traits.");
+    }
+    room.customTraits.push({ name, key, author: member.id });
     return true;
   }
 
@@ -481,7 +550,7 @@ export function createHandler(db, clock = Date.now, ownerEmail) {
     }
 
     try {
-      const match = pathname.match(/^\/api\/rooms\/([a-f0-9]{32}|[A-Za-z0-9_-]{16})(?:\/(join|settings|start|picks|unlock-picks|vote|unlock|choose|unlock-choice|leave))?$/);
+      const match = pathname.match(/^\/api\/rooms\/([a-f0-9]{32}|[A-Za-z0-9_-]{16})(?:\/(join|settings|start|suggest-trait|remove-trait|ready-traits|picks|unlock-picks|vote|unlock|choose|unlock-choice|leave))?$/);
       const create = pathname === "/api/rooms" && method === "POST";
       const state = match && !match[2] && method === "GET";
       const mutate = match?.[2] && method === "POST";
