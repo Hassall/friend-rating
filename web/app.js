@@ -135,11 +135,14 @@ function renderLobby() {
     (url !== directUrl ? '<button type="button" class="button compact quiet" id="copy-direct">Copy direct link</button>' : '') +
     '<fieldset id="room-settings" class="room-settings"' + (isHost ? '' : ' disabled') + '><legend>Game settings</legend>' +
       '<div class="pick-setting"><label for="pick-seconds">Trait selection time</label><select id="pick-seconds" name="pickSeconds">' +
-      PICK_SECONDS_OPTIONS.map((seconds) => '<option value="' + seconds + '">' +
+      PICK_SECONDS_OPTIONS.map((seconds) => '<option value="' + seconds + '"' +
+        (seconds === (room.pickSeconds ?? DEFAULT_PICK_SECONDS) ? ' selected' : '') + '>' +
         (seconds < 60 ? seconds + " seconds" : seconds / 60 + (seconds === 60 ? " minute" : " minutes")) + '</option>').join("") +
       '</select></div><fieldset class="room-options"><legend>Optional rounds</legend>' +
-      '<label><input type="checkbox" name="mostLikely"><span>Most Likely To<small>Vote on 10 random prompts.</small></span></label>' +
-      '<label><input type="checkbox" name="guessing"><span>Guess the Winners<small>Earn a point for each correct guess.</small></span></label>' +
+      '<label><input type="checkbox" name="mostLikely"' + (room.options?.mostLikely ? ' checked' : '') +
+      '><span>Most Likely To<small>Vote on 10 random prompts.</small></span></label>' +
+      '<label><input type="checkbox" name="guessing"' + (room.options?.guessing ? ' checked' : '') +
+      '><span>Guess the Winners<small>Earn a point for each correct guess.</small></span></label>' +
       '</fieldset></fieldset>' +
     (isHost ? '<div class="start-area"><button class="button primary" id="start"' + (room.players.length < 2 ? " disabled" : "") +
       '>Start game' + icon("arrow") + '</button><p>' + (room.players.length < 2 ? "Invite at least one friend to start." : "Joining closes when the game starts.") + '</p></div>'
