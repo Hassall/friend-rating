@@ -17,10 +17,12 @@ each player has their own player pass. The local server stores rooms in
 2. The host chooses **Default traits** or **Custom traits**. In custom mode,
    each player can suggest up to five traits during a separate timed round.
    The host can set the suggestion timer from 30 seconds to five minutes.
-   The round closes at the deadline or once everyone is done. It treats
+   The group suggestion cap defaults to 10, and the host can raise it to
+   15, 20, or 30. The round closes at the deadline or once everyone is done. It treats
    differences in capitalization, punctuation, spacing, and accents as
    duplicates. If fewer than ten traits were added, default traits fill
-   the remaining spots.
+   the remaining spots. With exactly ten traits, the group goes straight
+   to ratings. With more than ten, players vote on which ten to keep.
    The host also sets how long players have to lock in ten traits. The
    default is two minutes. You can review or unlock
    your picks until the timer expires or everyone locks in. Only locked picks

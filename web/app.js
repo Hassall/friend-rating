@@ -1,5 +1,6 @@
-import { CUSTOM_TRAIT_LENGTH, CUSTOM_TRAIT_LIMIT, CUSTOM_TRAIT_OFFSET, DEFAULT_PICK_SECONDS, DEFAULT_SUGGEST_SECONDS,
-  LEGACY_TRAIT_IDS, PICK_SECONDS_OPTIONS, POINT_STEP, RATING_SECONDS, TRAITS, TRAIT_IDS } from "./traits.js";
+import { CUSTOM_TRAIT_LENGTH, CUSTOM_TRAIT_LIMIT, CUSTOM_TRAIT_OFFSET, DEFAULT_PICK_SECONDS, DEFAULT_SUGGEST_LIMIT,
+  DEFAULT_SUGGEST_SECONDS, LEGACY_TRAIT_IDS, PICK_SECONDS_OPTIONS, POINT_STEP, RATING_SECONDS, SUGGEST_LIMIT_OPTIONS,
+  TRAITS, TRAIT_IDS } from "./traits.js";
 import { LIVE_ORIGIN, PAGES_ORIGIN } from "./origins.js";
 
 const app = document.querySelector("#app");
@@ -81,7 +82,10 @@ function avatar(member, size = "") {
 
 function stageNav(step) {
   const stages = ["Lobby", "Pick traits", "Rate friends"];
-  if (step !== 0 && room?.options?.custom) stages.splice(1, 0, "Add traits");
+  if (step !== 0 && room?.options?.custom) {
+    const skipPick = room.suggestLimit && (room.suggestLimit === 10 || room.traitPool.length === 10);
+    stages.splice(1, skipPick ? 1 : 0, "Add traits");
+  }
   if (step !== 0 && room?.options?.mostLikely) stages.push("Most likely to");
   if (step !== 0 && room?.options?.guessing) stages.push("Guess the winners");
   stages.push("Results");
@@ -143,8 +147,10 @@ function renderLobby() {
       '<div class="pick-setting"><label for="trait-source">Trait list</label><select id="trait-source" name="custom">' +
       '<option value="default">Default traits</option><option value="custom">Custom traits</option></select></div>' +
       '<div id="suggest-setting"' + (room.options?.custom ? '' : ' hidden') + '>' +
-      timeSetting("suggestSeconds", "Time to add traits", room.suggestSeconds ?? DEFAULT_SUGGEST_SECONDS) + '</div>' +
-      timeSetting("pickSeconds", "Trait selection time", room.pickSeconds ?? DEFAULT_PICK_SECONDS) +
+      timeSetting("suggestSeconds", "Time to add traits", room.suggestSeconds ?? DEFAULT_SUGGEST_SECONDS) +
+      numberSetting("suggestLimit", "Group suggestion limit", SUGGEST_LIMIT_OPTIONS, room.suggestLimit ?? DEFAULT_SUGGEST_LIMIT,
+        (count) => count + " traits") + '</div>' +
+      '<div id="pick-setting-wrap">' + timeSetting("pickSeconds", "Trait selection time", room.pickSeconds ?? DEFAULT_PICK_SECONDS) + '</div>' +
       '<fieldset class="room-options"><legend>Optional rounds</legend>' +
       '<label><input type="checkbox" name="mostLikely"' + (room.options?.mostLikely ? ' checked' : '') +
       '><span>Most Likely To<small>Vote on 10 random prompts.</small></span></label>' +
@@ -172,6 +178,7 @@ function renderLobby() {
   start?.addEventListener("click", (event) => send("start", {
     pickSeconds: Number(settings.elements.namedItem("pickSeconds").value),
     suggestSeconds: Number(settings.elements.namedItem("suggestSeconds").value),
+    suggestLimit: Number(settings.elements.namedItem("suggestLimit").value),
     custom: settings.elements.namedItem("custom").value === "custom",
     mostLikely: settings.elements.namedItem("mostLikely").checked,
     guessing: settings.elements.namedItem("guessing").checked,
@@ -179,9 +186,14 @@ function renderLobby() {
 }
 
 function timeSetting(name, label, value) {
+  return numberSetting(name, label, PICK_SECONDS_OPTIONS, value, (seconds) =>
+    seconds < 60 ? seconds + " seconds" : seconds / 60 + (seconds === 60 ? " minute" : " minutes"));
+}
+
+function numberSetting(name, label, options, value, format) {
   return '<div class="pick-setting"><label for="' + name + '">' + label + '</label><select id="' + name + '" name="' + name + '">' +
-    PICK_SECONDS_OPTIONS.map((seconds) => '<option value="' + seconds + '"' + (seconds === value ? ' selected' : '') + '>' +
-      (seconds < 60 ? seconds + " seconds" : seconds / 60 + (seconds === 60 ? " minute" : " minutes")) + '</option>').join("") +
+    options.map((option) => '<option value="' + option + '"' + (option === value ? ' selected' : '') + '>' +
+      format(option) + '</option>').join("") +
     '</select></div>';
 }
 
@@ -190,15 +202,17 @@ function syncLobbySettings() {
   if (!settings || busy) return;
   settings.elements.namedItem("pickSeconds").value = String(room.pickSeconds ?? DEFAULT_PICK_SECONDS);
   settings.elements.namedItem("suggestSeconds").value = String(room.suggestSeconds ?? DEFAULT_SUGGEST_SECONDS);
+  settings.elements.namedItem("suggestLimit").value = String(room.suggestLimit ?? DEFAULT_SUGGEST_LIMIT);
   settings.elements.namedItem("custom").value = room.options?.custom ? "custom" : "default";
   settings.querySelector("#suggest-setting").hidden = !room.options?.custom;
+  settings.querySelector("#pick-setting-wrap").hidden = Boolean(room.options?.custom && room.suggestLimit === 10);
   settings.elements.namedItem("mostLikely").checked = Boolean(room.options?.mostLikely);
   settings.elements.namedItem("guessing").checked = Boolean(room.options?.guessing);
 }
 
 function renderSuggestions() {
   app.innerHTML = stageNav("Add traits") + '<div class="page-heading"><div><h1>Add your own traits.</h1>' +
-    '<p>What describes your group? Add up to five traits, then vote together on the list.</p></div>' +
+    '<p>Suggest traits that describe your friends, like “Good Listener” or “Always Has a Plan.” Add up to five.</p></div>' +
     '<span class="small-pill ready-count" id="suggest-ready-count"></span></div>' +
     '<section class="panel suggest-panel"><div class="selection-bar"><div class="pick-meter"><strong id="suggest-quota"></strong></div>' +
     '<div class="pick-clock">' + icon("clock", 18) + '<div><small>Time left</small>' +
@@ -208,7 +222,7 @@ function renderSuggestions() {
     '<input id="suggest-name" name="name" maxlength="' + CUSTOM_TRAIT_LENGTH + '" placeholder="e.g. Hype Friend" autocomplete="off" required>' +
     '<button class="button primary" id="suggest-add" type="submit">Add trait</button></div></form>' +
     '<div id="error" role="alert" class="error"></div>' +
-    '<h2>Group suggestions</h2><p class="muted" id="suggest-hint"></p>' +
+    '<h2>Group suggestions <span class="muted" id="suggest-total"></span></h2><p class="muted" id="suggest-hint"></p>' +
     '<ul class="suggest-list" id="suggest-list" aria-label="Group suggestions"></ul></section>';
   const form = document.querySelector("#suggest-form");
   const input = form.elements.namedItem("name");
@@ -235,12 +249,19 @@ function syncSuggestions() {
   if (!list || busy) return;
   const mine = new Set(room.mySuggestions);
   const locked = room.suggestionsReady || !timeLeft();
-  const full = mine.size >= CUSTOM_TRAIT_LIMIT;
+  const groupCount = room.customTraits.length;
+  const groupFull = room.suggestLimit != null && groupCount >= room.suggestLimit;
+  const full = mine.size >= CUSTOM_TRAIT_LIMIT || groupFull;
   document.querySelector("#suggest-ready-count").textContent = room.suggestionsReadyCount + " / " + room.players.length + " done";
   document.querySelector("#suggest-quota").textContent = mine.size + " / " + CUSTOM_TRAIT_LIMIT + " added";
-  document.querySelector("#suggest-hint").textContent = room.customTraits.length >= 10
-    ? "Only group suggestions will appear in the vote."
-    : "If the group suggests fewer than 10, default traits will fill the remaining spots.";
+  document.querySelector("#suggest-total").textContent = room.suggestLimit ? "(" + groupCount + " / " + room.suggestLimit + ")" : "(" + groupCount + ")";
+  document.querySelector("#suggest-hint").textContent = groupFull
+    ? "The list is full. Remove one of your own suggestions to make room, or choose Done adding."
+    : room.suggestLimit === 10
+      ? "These traits go straight to ratings. Default traits fill any empty spots."
+      : groupCount >= 10
+        ? "If the list has more than 10 traits, the group votes on which ones to keep."
+        : "Default traits fill any empty spots. If you suggest more than 10, the group votes.";
   document.querySelector("#suggest-name").disabled = locked || full;
   document.querySelector("#suggest-add").disabled = locked || full;
   const ready = document.querySelector("#suggest-ready");

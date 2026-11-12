@@ -84,7 +84,12 @@ function openTraitVoting(room, at) {
     if (room.traitPool.length >= TRAIT_COUNT) break;
     if (!names.has(traitKey(name))) room.traitPool.push(TRAIT_IDS.find((id) => TRAITS[id][0] === name));
   }
-  room.stage = { phase: "traits", deadline: at + (room.pickSeconds ?? DEFAULT_PICK_SECONDS) * 1000 };
+  if (room.suggestLimit && room.traitPool.length === TRAIT_COUNT) {
+    room.traits = topTraits(room);
+    room.stage = { phase: "starting", deadline: at + BREAK_MS, next: 0 };
+  } else {
+    room.stage = { phase: "traits", deadline: at + (room.pickSeconds ?? DEFAULT_PICK_SECONDS) * 1000 };
+  }
 }
 
 function topTraits(room) {
@@ -318,6 +323,7 @@ function snapshot(room, member, now, revision) {
     roundSeconds: (room.roundMs ?? LEGACY_ROUND_MS) / 1000,
     pickSeconds: room.pickSeconds ?? DEFAULT_PICK_SECONDS,
     suggestSeconds: room.suggestSeconds ?? DEFAULT_SUGGEST_SECONDS,
+    suggestLimit: room.suggestLimit ?? (room.customTraits ? null : DEFAULT_SUGGEST_LIMIT),
     options: room.options,
     picks: member.picks,
     players: room.players.map(({ id, name, picks, left }) => ({ id, name, ready: Boolean(picks), left: Boolean(left) })),
@@ -376,6 +382,10 @@ function updateSettings(room, data) {
     if (!PICK_SECONDS_OPTIONS.includes(data.suggestSeconds)) throw new GameError("Choose an available suggestion time.");
     room.suggestSeconds = data.suggestSeconds;
   }
+  if (Object.hasOwn(data, "suggestLimit")) {
+    if (!SUGGEST_LIMIT_OPTIONS.includes(data.suggestLimit)) throw new GameError("Choose an available group suggestion limit.");
+    room.suggestLimit = data.suggestLimit;
+  }
   room.options ??= { mostLikely: false, guessing: false };
   for (const option of ["mostLikely", "guessing", "custom"]) {
     if (Object.hasOwn(data, option)) {
@@ -414,7 +424,10 @@ function applyAction(room, member, action, data, now) {
       room.promptVotes = {};
     }
     const suggestionMs = room.options.custom ? (room.suggestSeconds ?? DEFAULT_SUGGEST_SECONDS) * 1000 : 0;
-    if (room.options.custom) room.customTraits = [];
+    if (room.options.custom) {
+      room.customTraits = [];
+      room.suggestLimit ??= DEFAULT_SUGGEST_LIMIT;
+    }
     room.stage = suggestionMs ? { phase: "suggestions", deadline: now + suggestionMs }
       : { phase: "traits", deadline: now + (room.pickSeconds ?? DEFAULT_PICK_SECONDS) * 1000 };
     const extraRounds = Number(room.options.mostLikely) + Number(room.options.guessing);
@@ -442,6 +455,9 @@ function applyAction(room, member, action, data, now) {
     if (existing) throw new GameError("“" + existing.name + "” is already on the list.", 409);
     if (room.customTraits.filter(({ author }) => author === member.id).length >= CUSTOM_TRAIT_LIMIT) {
       throw new GameError("You can add up to five traits.");
+    }
+    if (room.suggestLimit && room.customTraits.length >= room.suggestLimit) {
+      throw new GameError("The group list is full. Remove one of your suggestions to make room.", 409);
     }
     room.customTraits.push({ name, key, author: member.id });
     return true;
