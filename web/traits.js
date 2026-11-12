@@ -8,6 +8,8 @@ export const SUGGEST_LIMIT_OPTIONS = [10, 15, 20, 30];
 export const CUSTOM_TRAIT_OFFSET = 1000;
 export const CUSTOM_TRAIT_LIMIT = 5;
 export const CUSTOM_TRAIT_LENGTH = 24;
+export const CUSTOM_PROMPT_LIMIT = 2;
+export const CUSTOM_PROMPT_LENGTH = 80;
 
 // Keep the original IDs for games that already picked their traits.
 const ORIGINAL_TRAITS = [

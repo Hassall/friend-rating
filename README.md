@@ -37,8 +37,13 @@ each player has their own player pass. The local server stores rooms in
    round, then a four-second countdown leads to the next player or the rankings.
 5. The host can enable either or both optional rounds before starting.
    Guests can see the timer and optional rounds selected in the lobby.
-   **Most Likely To** presents ten random questions, one at a time. Everyone
-   votes for one player per question. **Guess the Winners** asks up to ten
+   **Most Likely To** presents ten questions, one at a time. The host can
+   use random defaults or let players each write up to two questions.
+   In custom mode, questions face off in random pairs with authors hidden
+   until the reveal. Each battle winner earns a point; ties with votes
+   award a point to both winning prompts. Up to ten custom questions
+   advance, ordered by battle wins and then votes. Defaults fill any gaps.
+   Everyone votes for one player per question. **Guess the Winners** asks up to ten
    questions about the trait results and, when available, the Most Likely To
    votes. A five-second countdown introduces the round. Each correct
    prediction earns one point, and any tied winner counts.
@@ -48,6 +53,8 @@ each player has their own player pass. The local server stores rooms in
    for the last slot. The recap shows every player’s chart on a common
    scale. Select a chart to view exact scores. The recap also shows the
    winners of each Most Likely To question and the guessing leaderboard.
+   Suggestion points are shown separately: one per selected custom trait,
+   one per selected custom question, and one per prompt battle won.
 
 The short invite link admits anyone holding it while the lobby is open.
 On the hosted site, is.gd redirects to the public homepage. The browser

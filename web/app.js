@@ -1,4 +1,4 @@
-import { CUSTOM_TRAIT_LENGTH, CUSTOM_TRAIT_LIMIT, CUSTOM_TRAIT_OFFSET, DEFAULT_PICK_SECONDS, DEFAULT_SUGGEST_LIMIT,
+import { CUSTOM_PROMPT_LENGTH, CUSTOM_PROMPT_LIMIT, CUSTOM_TRAIT_LENGTH, CUSTOM_TRAIT_LIMIT, CUSTOM_TRAIT_OFFSET, DEFAULT_PICK_SECONDS, DEFAULT_SUGGEST_LIMIT,
   DEFAULT_SUGGEST_SECONDS, LEGACY_TRAIT_IDS, PICK_SECONDS_OPTIONS, POINT_STEP, RATING_SECONDS, SUGGEST_LIMIT_OPTIONS,
   TRAITS, TRAIT_IDS } from "./traits.js";
 import { LIVE_ORIGIN, PAGES_ORIGIN } from "./origins.js";
@@ -86,7 +86,10 @@ function stageNav(step) {
     const skipPick = room.suggestLimit && (room.suggestLimit === 10 || room.traitPool.length === 10);
     stages.splice(1, skipPick ? 1 : 0, "Add traits");
   }
-  if (step !== 0 && room?.options?.mostLikely) stages.push("Most likely to");
+  if (step !== 0 && room?.options?.mostLikely) {
+    if (room.options.customPrompts) stages.push("Write questions", "Prompt battles");
+    stages.push("Most likely to");
+  }
   if (step !== 0 && room?.options?.guessing) stages.push("Guess the winners");
   stages.push("Results");
   const current = typeof step === "string" ? stages.indexOf(step)
@@ -153,7 +156,13 @@ function renderLobby() {
       '<div id="pick-setting-wrap">' + timeSetting("pickSeconds", "Trait selection time", room.pickSeconds ?? DEFAULT_PICK_SECONDS) + '</div>' +
       '<fieldset class="room-options"><legend>Optional rounds</legend>' +
       '<label><input type="checkbox" name="mostLikely"' + (room.options?.mostLikely ? ' checked' : '') +
-      '><span>Most Likely To<small>Vote on 10 random prompts.</small></span></label>' +
+      '><span>Most Likely To<small>Vote on which friend fits each question.</small></span></label>' +
+      '<div id="prompt-settings" hidden><div class="pick-setting"><label for="prompt-source">Question list</label>' +
+      '<select id="prompt-source" name="customPrompts"><option value="default">Default questions</option>' +
+      '<option value="custom">Custom questions &amp; battles</option></select></div>' +
+      '<div id="prompt-timing" hidden>' +
+      timeSetting("promptSuggestSeconds", "Time to write questions", room.promptSuggestSeconds ?? DEFAULT_SUGGEST_SECONDS) +
+      '</div></div>' +
       '<label><input type="checkbox" name="guessing"' + (room.options?.guessing ? ' checked' : '') +
       '><span>Guess the Winners<small>Earn a point for each correct guess.</small></span></label>' +
       '</fieldset></fieldset>' +
@@ -166,7 +175,7 @@ function renderLobby() {
   const settings = document.querySelector("#room-settings");
   const start = document.querySelector("#start");
   if (isHost) settings.addEventListener("change", async ({ target }) => {
-    const value = target.name === "custom" ? target.value === "custom"
+    const value = ["custom", "customPrompts"].includes(target.name) ? target.value === "custom"
       : target.tagName === "SELECT" ? Number(target.value) : target.checked;
     const focused = document.activeElement === target;
     start.disabled = true;
@@ -181,6 +190,8 @@ function renderLobby() {
     suggestLimit: Number(settings.elements.namedItem("suggestLimit").value),
     custom: settings.elements.namedItem("custom").value === "custom",
     mostLikely: settings.elements.namedItem("mostLikely").checked,
+    customPrompts: settings.elements.namedItem("customPrompts").value === "custom",
+    promptSuggestSeconds: Number(settings.elements.namedItem("promptSuggestSeconds").value),
     guessing: settings.elements.namedItem("guessing").checked,
   }, event.currentTarget));
 }
@@ -207,20 +218,32 @@ function syncLobbySettings() {
   settings.querySelector("#suggest-setting").hidden = !room.options?.custom;
   settings.querySelector("#pick-setting-wrap").hidden = Boolean(room.options?.custom && room.suggestLimit === 10);
   settings.elements.namedItem("mostLikely").checked = Boolean(room.options?.mostLikely);
+  settings.elements.namedItem("customPrompts").value = room.options?.customPrompts ? "custom" : "default";
+  settings.elements.namedItem("promptSuggestSeconds").value = String(room.promptSuggestSeconds ?? DEFAULT_SUGGEST_SECONDS);
+  settings.querySelector("#prompt-settings").hidden = !room.options?.mostLikely;
+  settings.querySelector("#prompt-timing").hidden = !room.options?.customPrompts;
   settings.elements.namedItem("guessing").checked = Boolean(room.options?.guessing);
 }
 
 function renderSuggestions() {
-  app.innerHTML = stageNav("Add traits") + '<div class="page-heading"><div><h1>Add your own traits.</h1>' +
-    '<p>Suggest traits that describe your friends, like “Good Listener” or “Always Has a Plan.” Add up to five.</p></div>' +
+  const prompts = room.phase === "prompt-suggestions";
+  const kind = prompts ? "prompt" : "trait";
+  app.innerHTML = stageNav(prompts ? "Write questions" : "Add traits") + '<div class="page-heading"><div><h1>' +
+    (prompts ? "Write a Most Likely To question." : "Add your own traits.") + '</h1><p>' +
+    (prompts ? "Think of something your friends might do. Add up to two questions and watch them go head-to-head."
+      : "Suggest traits that describe your friends, like “Good Listener” or “Always Has a Plan.” Add up to five.") +
+    '</p></div>' +
     '<span class="small-pill ready-count" id="suggest-ready-count"></span></div>' +
     '<section class="panel suggest-panel"><div class="selection-bar"><div class="pick-meter"><strong id="suggest-quota"></strong></div>' +
     '<div class="pick-clock">' + icon("clock", 18) + '<div><small>Time left</small>' +
-    '<span data-clock="' + room.suggestSeconds + '"></span></div></div>' +
+    '<span data-clock="' + (prompts ? room.promptSuggestSeconds : room.suggestSeconds) + '"></span></div></div>' +
     '<button id="suggest-ready" type="button" class="button secondary"></button></div>' +
-    '<form id="suggest-form"><label for="suggest-name">Your suggestion</label><div class="entry-controls">' +
-    '<input id="suggest-name" name="name" maxlength="' + CUSTOM_TRAIT_LENGTH + '" placeholder="e.g. Hype Friend" autocomplete="off" required>' +
-    '<button class="button primary" id="suggest-add" type="submit">Add trait</button></div></form>' +
+    '<form id="suggest-form"><label for="suggest-name">' + (prompts ? "Who’s most likely to…" : "Your suggestion") +
+    '</label><div class="entry-controls"><input id="suggest-name" name="name" maxlength="' +
+    (prompts ? CUSTOM_PROMPT_LENGTH + 24 : CUSTOM_TRAIT_LENGTH) + '" placeholder="' +
+    (prompts ? "e.g. turn an errand into an adventure" : "e.g. Hype Friend") + '" autocomplete="off" required>' +
+    '<button class="button primary" id="suggest-add" type="submit">' + (prompts ? "Add question" : "Add trait") +
+    '</button></div></form>' +
     '<div id="error" role="alert" class="error"></div>' +
     '<h2>Group suggestions <span class="muted" id="suggest-total"></span></h2><p class="muted" id="suggest-hint"></p>' +
     '<ul class="suggest-list" id="suggest-list" aria-label="Group suggestions"></ul></section>';
@@ -231,31 +254,37 @@ function renderSuggestions() {
     if (busy || !timeLeft()) return;
     const name = input.value.trim();
     if (!name) return;
-    if (await send("suggest-trait", { name }, document.querySelector("#suggest-add"))) {
+    if (await send("suggest-" + kind, { name }, document.querySelector("#suggest-add"))) {
       input.value = "";
       if (!input.disabled) input.focus();
     } else if (!input.disabled) input.focus();
   });
   document.querySelector("#suggest-ready").addEventListener("click", (event) =>
-    send("ready-traits", { ready: !room.suggestionsReady }, event.currentTarget));
+    send("ready-" + kind + "s", { ready: !room.suggestionsReady }, event.currentTarget));
   document.querySelector("#suggest-list").addEventListener("click", (event) => {
     const button = event.target.closest("[data-remove-trait]");
-    if (button) send("remove-trait", { name: room.customTraits[Number(button.dataset.removeTrait)] }, button);
+    if (button) send("remove-" + kind, { name: (prompts ? room.promptSuggestions : room.customTraits)[Number(button.dataset.removeTrait)] }, button);
   });
 }
 
 function syncSuggestions() {
   const list = document.querySelector("#suggest-list");
   if (!list || busy) return;
+  const prompts = room.phase === "prompt-suggestions";
+  const suggestions = prompts ? room.promptSuggestions : room.customTraits;
+  const limit = prompts ? CUSTOM_PROMPT_LIMIT : CUSTOM_TRAIT_LIMIT;
+  const groupLimit = prompts ? null : room.suggestLimit;
   const mine = new Set(room.mySuggestions);
   const locked = room.suggestionsReady || !timeLeft();
-  const groupCount = room.customTraits.length;
-  const groupFull = room.suggestLimit != null && groupCount >= room.suggestLimit;
-  const full = mine.size >= CUSTOM_TRAIT_LIMIT || groupFull;
-  document.querySelector("#suggest-ready-count").textContent = room.suggestionsReadyCount + " / " + room.players.length + " done";
-  document.querySelector("#suggest-quota").textContent = mine.size + " / " + CUSTOM_TRAIT_LIMIT + " added";
-  document.querySelector("#suggest-total").textContent = room.suggestLimit ? "(" + groupCount + " / " + room.suggestLimit + ")" : "(" + groupCount + ")";
-  document.querySelector("#suggest-hint").textContent = groupFull
+  const groupCount = suggestions.length;
+  const groupFull = groupLimit != null && groupCount >= groupLimit;
+  const full = mine.size >= limit || groupFull;
+  document.querySelector("#suggest-ready-count").textContent = room.suggestionsReadyCount + " / " + room.players.filter(({ left }) => !left).length + " done";
+  document.querySelector("#suggest-quota").textContent = mine.size + " / " + limit + " added";
+  document.querySelector("#suggest-total").textContent = groupLimit ? "(" + groupCount + " / " + groupLimit + ")" : "(" + groupCount + ")";
+  document.querySelector("#suggest-hint").textContent = prompts
+    ? "Each battle win earns 1 point. The top questions make the final 10, and every question that makes it earns another point."
+    : groupFull
     ? "The list is full. Remove one of your own suggestions to make room, or choose Done adding."
     : room.suggestLimit === 10
       ? "These traits go straight to ratings. Default traits fill any empty spots."
@@ -267,12 +296,12 @@ function syncSuggestions() {
   const ready = document.querySelector("#suggest-ready");
   ready.textContent = room.suggestionsReady ? "Keep adding" : "Done adding";
   ready.disabled = !timeLeft();
-  const key = JSON.stringify([room.customTraits, room.mySuggestions, locked]);
+  const key = JSON.stringify([suggestions, room.mySuggestions, locked]);
   if (key === list.dataset.content) return;
   list.dataset.content = key;
-  list.innerHTML = room.customTraits.map((name, i) => ({ name, i }))
+  list.innerHTML = suggestions.map((name, i) => ({ name, i }))
     .sort((a, b) => a.name.localeCompare(b.name, "en"))
-    .map(({ name, i }) => '<li><span>' + html(name) + '</span>' +
+    .map(({ name, i }) => '<li><span>' + html(prompts ? "Who’s most likely to " + name + "?" : name) + '</span>' +
       (mine.has(i) ? '<button type="button" data-remove-trait="' + i + '" aria-label="Remove ' + html(name) + '"' +
       (locked ? ' disabled' : '') + '>×</button>' : '') + '</li>').join("");
 }
@@ -358,7 +387,7 @@ function renderBreak() {
   const moreRounds = next && room.players.filter((member) => !member.left).length >= 2;
   let nextLabel = "Trait rankings are next.";
   if (room.players.filter((member) => !member.left).length >= 2) {
-    if (room.options?.mostLikely) nextLabel = "Most Likely To is next.";
+    if (room.options?.mostLikely) nextLabel = room.options.customPrompts ? "Time to write questions." : "Most Likely To is next.";
     else if (room.options?.guessing) nextLabel = "Guess the Winners is next.";
   }
   app.innerHTML = stageNav(2) + '<section class="panel centered transition-panel">' +
@@ -487,6 +516,55 @@ function renderGuessIntro() {
     room.introSeconds + '"></div><p class="muted">First question starts soon</p></section>';
 }
 
+function renderPromptBattle() {
+  const reveal = room.phase === "prompt-battle-reveal";
+  const locked = room.choice != null;
+  const round = room.round;
+  const label = "Prompt battle · " + (round + 1) + " of " + room.battleCount;
+  if (reveal) {
+    const winners = room.battleOptions.filter(({ won }) => won);
+    const title = winners.length > 1 ? "It’s a tie!" : winners.length === 1
+      ? html(room.players.find(({ id }) => id === winners[0].author).name) + " wins the battle!"
+      : "No votes this time.";
+    app.innerHTML = stageNav("Prompt battles") + '<section class="panel choice-panel battle-panel battle-reveal">' +
+      '<div class="choice-heading"><div><p class="round-label">' + label + '</p><h1>' + title + '</h1><p>' +
+      (winners.length > 1 ? "Both winning prompts earn a point." : winners.length === 1 ? "+1 point for the winning prompt." : "No points awarded.") +
+      '</p></div><div class="countdown" data-clock="' + room.battleSeconds + '"></div></div><div class="battle-grid">' +
+      room.battleOptions.map(({ author, question, votes, won }) => {
+        const player = room.players.find(({ id }) => id === author);
+        return '<article class="battle-card' + (won ? ' battle-winner' : '') + '"><strong>' + html(question) + '</strong>' +
+          '<div class="battle-author">' + avatar(player) + '<span>By ' + html(player.name) + '</span></div><small>' +
+          votes + (votes === 1 ? " vote" : " votes") + (won ? " · +1 point" : "") + '</small></article>';
+      }).join("") + '</div>' +
+      (room.battleScores.length ? '<div class="battle-scores"><h2>Battle points</h2><ul>' +
+        room.battleScores.map(({ id, score }) => '<li>' + html(room.players.find((player) => player.id === id).name) +
+          ' <strong>' + score + '</strong></li>').join("") + '</ul></div>' : '') +
+      '<p class="muted battle-next">' + (round + 1 < room.battleCount ? "Next battle coming up…" : "Up next: vote on which friend fits each question.") +
+      '</p></section>';
+    return;
+  }
+  app.innerHTML = stageNav("Prompt battles") + '<section class="panel choice-panel battle-panel">' +
+    '<div class="choice-heading"><div><p class="round-label">' + label +
+    '</p><h1 id="battle-heading">Which question is better?</h1><p>Pick your favorite. The writers are revealed when voting closes.</p>' +
+    '</div><div class="countdown" data-clock="' + room.battleSeconds + '"></div></div>' +
+    '<form id="battle-form"><fieldset class="choice-grid battle-grid" aria-labelledby="battle-heading"' + (locked ? ' disabled' : '') + '>' +
+    room.battleOptions.map(({ id, question }) => '<label class="battle-card"><input type="radio" name="prompt" value="' + id +
+      '"' + (id === room.choice ? ' checked' : '') + '><span>' + html(question) + '</span></label>').join("") +
+    '</fieldset><div class="choice-actions"><span class="muted" id="vote-count"></span>' +
+    (locked ? '<span class="locked-choice">Vote locked</span><button class="button secondary" type="button" id="choice-unlock">Unlock</button>'
+      : '<button class="button primary" type="submit" id="choice-lock" disabled>Lock vote</button>') +
+    '</div><div id="error" role="alert" class="error"></div></form></section>';
+  const form = document.querySelector("#battle-form");
+  const lock = document.querySelector("#choice-lock");
+  form.addEventListener("change", () => { if (lock) lock.disabled = !timeLeft(); });
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const prompt = new FormData(form).get("prompt");
+    if (prompt != null && timeLeft()) send("battle-vote", { round, prompt: Number(prompt) }, lock);
+  });
+  document.querySelector("#choice-unlock")?.addEventListener("click", (event) => send("unlock-battle", { round }, event.currentTarget));
+}
+
 function renderChoice() {
   const guessing = room.phase === "guessing";
   const locked = Boolean(room.choice);
@@ -607,6 +685,21 @@ function winnerNames(ids) {
 
 function renderExtraResults() {
   let output = "";
+  if (room.suggestionScores) {
+    const ranked = room.suggestionScores.map(({ id, total, traits, prompts, battles }) => {
+      const rank = room.suggestionScores.findIndex((entry) => entry.total === total) + 1;
+      const member = room.players.find((player) => player.id === id);
+      const detail = [traits && traits + (traits === 1 ? " trait selected" : " traits selected"),
+        prompts && prompts + (prompts === 1 ? " question selected" : " questions selected"),
+        battles && battles + (battles === 1 ? " battle win" : " battle wins")].filter(Boolean).join(" · ");
+      return '<li><span class="rank-place" aria-label="Rank ' + rank + '">#' + rank + '</span>' + avatar(member) +
+        '<div class="rank-name"><strong>' + html(member.name) + '</strong><small class="muted">' + detail +
+        '</small></div><span class="rank-average"><strong>' + total + '</strong> pts</span></li>';
+    }).join("");
+    output += '<section class="panel all-rankings suggestion-results"><div class="panel-heading"><h2>' +
+      icon("trophy") + 'Suggestion points</h2></div><p class="muted">One point for every trait or question that made the cut, plus one per prompt battle won.</p>' +
+      (ranked ? '<ol class="ranking-list">' + ranked + '</ol>' : '<p>No suggestion points this game.</p>') + '</section>';
+  }
   if (room.mostLikelyResults) {
     output += '<section class="panel all-rankings"><div class="panel-heading"><h2>Most Likely To results</h2></div>' +
       '<div class="ranking-grid">' + room.mostLikelyResults.map(({ question, winners, votes }) =>
@@ -712,6 +805,7 @@ function renderRoom() {
     viewKey = key;
     const renderers = {
       lobby: renderLobby, suggestions: renderSuggestions, traits: renderTraits, starting: renderStarting, rating: renderRating,
+      "prompt-suggestions": renderSuggestions, "prompt-battle": renderPromptBattle, "prompt-battle-reveal": renderPromptBattle,
       "most-likely": renderChoice, "guess-intro": renderGuessIntro, guessing: renderChoice,
       break: renderBreak, reveal: renderReveal, results: renderResults,
     };
