@@ -195,14 +195,25 @@ function finishPromptBattles(room, at, activeCount) {
 
 function openPromptBattles(room, at, activeCount) {
   const ids = sampleQuestions(room.customPrompts.map((_, i) => i), room.customPrompts.length);
-  room.battlePairs = [];
+  const byAuthor = new Map();
+  for (const id of ids) {
+    const { author } = room.customPrompts[id];
+    if (!byAuthor.has(author)) byAuthor.set(author, []);
+    byAuthor.get(author).push(id);
+  }
+  const groups = [...byAuthor.values()];
+  const pairs = [];
+  while (groups.length >= 2) {
+    groups.sort((a, b) => b.length - a.length);
+    const [first, second] = groups.splice(0, 2);
+    const pair = [first.pop(), second.pop()];
+    pairs.push(Math.random() < .5 ? pair : pair.reverse());
+    for (const group of [first, second]) if (group.length) groups.push(group);
+  }
+  if (groups[0]?.length >= 2) pairs.push(groups[0].slice(0, 2));
+  room.battlePairs = sampleQuestions(pairs, pairs.length);
   room.battleBallots = {};
   room.battleResults = [];
-  while (ids.length >= 2) {
-    const first = ids.shift();
-    const opponent = ids.findIndex((id) => room.customPrompts[id].author !== room.customPrompts[first].author);
-    room.battlePairs.push([first, ids.splice(Math.max(0, opponent), 1)[0]]);
-  }
   if (!room.battlePairs.length || activeCount < 2) {
     finishPromptBattles(room, at, activeCount);
   } else {

@@ -22,8 +22,10 @@ const ROOM_API_ORIGIN = location.origin === PAGES_ORIGIN ? LIVE_ORIGIN : "";
 const roomFragment = location.pathname === "/" && location.hash.match(/^#r=([A-Za-z0-9_-]{16})$/)?.[1];
 if (roomFragment) history.replaceState(null, "", invitePath(roomFragment));
 const roomPath = location.pathname.match(/^\/(?:r|room)\/([a-f0-9]{32}|[A-Za-z0-9_-]{16})$/);
+const playerStore = browserStore("localStorage");
+const draftStore = browserStore("sessionStorage");
 let roomId = roomPath?.[1];
-let pass = roomId ? localStorage.getItem("player:" + roomId) : null;
+let pass = roomId ? playerStore.get("player:" + roomId) : null;
 let room = null;
 let viewKey = "";
 let chosen = new Set();
@@ -33,6 +35,23 @@ let busy = false;
 let serverTimeOffset = 0;
 let pollTimer;
 let syncFailed = false;
+
+function browserStore(scope) {
+  const memory = new Map();
+  return {
+    get(key) {
+      if (memory.has(key)) return memory.get(key);
+      try { return window[scope].getItem(key); } catch { return null; }
+    },
+    set(key, value) {
+      memory.set(key, value);
+      try {
+        if (value === null) window[scope].removeItem(key);
+        else window[scope].setItem(key, value);
+      } catch { /* Keep playing when storage is blocked or full. */ }
+    },
+  };
+}
 
 function html(value) {
   const escapes = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
@@ -402,10 +421,10 @@ function renderRating() {
   const locked = room.voted;
   if (locked && room.ballot) {
     points = [...room.ballot];
-    sessionStorage.setItem("draft:" + roomId + ":" + room.round, JSON.stringify(points));
+    draftStore.set("draft:" + roomId + ":" + room.round, JSON.stringify(points));
   } else if (!ownRound) {
     try {
-      const saved = JSON.parse(sessionStorage.getItem("draft:" + roomId + ":" + room.round));
+      const saved = JSON.parse(draftStore.get("draft:" + roomId + ":" + room.round));
       points = Array.isArray(saved) && saved.length === 10 &&
         saved.every((value) => Number.isInteger(value) && value >= 0) &&
         saved.reduce((sum, value) => sum + value, 0) <= 100
@@ -491,7 +510,7 @@ function remaining() {
 
 function updatePoints() {
   const rest = remaining();
-  sessionStorage.setItem("draft:" + roomId + ":" + room.round, JSON.stringify(points));
+  draftStore.set("draft:" + roomId + ":" + room.round, JSON.stringify(points));
   document.querySelector("#remaining").textContent = rest;
   document.querySelector("#remaining-mobile").textContent = rest + " points left";
   document.querySelector("#budget-fill").style.width = (100 - rest) + "%";
@@ -802,7 +821,6 @@ function renderRoom() {
   const key = [room.phase, room.round, room.ranking, room.voted, Boolean(room.picks), room.host, rosterKey, room.choice].join(":");
   if (viewKey !== key) {
     const [oldPhase, oldRound] = viewKey.split(":");
-    viewKey = key;
     const renderers = {
       lobby: renderLobby, suggestions: renderSuggestions, traits: renderTraits, starting: renderStarting, rating: renderRating,
       "prompt-suggestions": renderSuggestions, "prompt-battle": renderPromptBattle, "prompt-battle-reveal": renderPromptBattle,
@@ -810,6 +828,7 @@ function renderRoom() {
       break: renderBreak, reveal: renderReveal, results: renderResults,
     };
     renderers[room.phase]();
+    viewKey = key;
     if (room.phase === "reveal") say(app.querySelector("h1").textContent + ". " + app.querySelector(".reveal").innerText);
     else if (oldPhase !== room.phase || (room.round !== undefined && oldRound !== String(room.round))) {
       say(app.querySelector("h1")?.textContent ?? "");
@@ -851,16 +870,17 @@ function accept(next, sentAt) {
 
 function activityBrowserId() {
   const key = "friend-rating-browser-id";
-  try {
-    let id = localStorage.getItem(key);
-    if (!/^[a-f0-9]{32}$/.test(id ?? "")) {
-      id = crypto.randomUUID().replaceAll("-", "");
-      localStorage.setItem(key, id);
-    }
-    return id;
-  } catch {
-    return undefined;
+  let id = playerStore.get(key);
+  if (!/^[a-f0-9]{32}$/.test(id ?? "")) {
+    id = randomPlayerId();
+    playerStore.set(key, id);
   }
+  return id;
+}
+
+function randomPlayerId() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)),
+    (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function enterRoom(event) {
@@ -873,18 +893,18 @@ async function enterRoom(event) {
   busy = control.disabled = true;
   notice();
   try {
-    const token = pass || Array.from(crypto.getRandomValues(new Uint8Array(16)),
-      (byte) => byte.toString(16).padStart(2, "0")).join("");
+    const token = pass || randomPlayerId();
     pass = token;
     const sentAt = performance.now();
     const next = await api(roomId ? "/" + roomId + "/join" : "", { name, browserId: activityBrowserId() }, token);
     roomId = next.id;
-    localStorage.setItem("player:" + roomId, token);
+    playerStore.set("player:" + roomId, token);
     history.replaceState(null, "", invitePath(roomId));
     accept(next, sentAt);
     schedulePoll();
   } catch (error) {
-    notice(error.message);
+    if (roomId && [404, 410].includes(error.status)) exitRoom(error.message);
+    else notice(error.message);
   } finally {
     busy = control.disabled = false;
   }
@@ -905,7 +925,8 @@ async function send(action, data, control) {
     }
     return true;
   } catch (error) {
-    notice(error.message);
+    if (room && [401, 404, 410].includes(error.status)) exitRoom(error.message);
+    else notice(error.message);
   } finally {
     busy = false;
     if (control.isConnected) control.disabled = Boolean(action !== "leave" && room?.deadline && !timeLeft());
@@ -915,7 +936,7 @@ async function send(action, data, control) {
 
 function exitRoom(message) {
   clearTimeout(pollTimer);
-  localStorage.removeItem("player:" + roomId);
+  playerStore.set("player:" + roomId, null);
   roomId = pass = room = null;
   viewKey = "";
   syncFailed = false;
@@ -945,7 +966,10 @@ async function poll() {
       return;
     }
     if (!room && error.status === 401) {
-      renderWelcome();
+      playerStore.set("player:" + roomId, null);
+      pass = null;
+      syncFailed = false;
+      renderWelcome("Enter your display name to join this room.");
       return;
     }
     syncFailed = true;

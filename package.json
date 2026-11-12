@@ -6,6 +6,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "build:pages": "node scripts/build-pages.mjs",
-    "dev": "node scripts/dev.mjs"
+    "dev": "node scripts/dev.mjs",
+    "test": "node scripts/build.mjs && node --test scripts/game.test.mjs"
   }
 }

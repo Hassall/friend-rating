@@ -11,6 +11,10 @@ http://127.0.0.1:4173. Test with a second browser profile or private window so
 each player has their own player pass. The local server stores rooms in
 `.local/rooms.sqlite`.
 
+Run `npm test` (or `node scripts/build.mjs` then
+`node --test scripts/game.test.mjs`) to check the game against a temporary
+database and a simulated clock.
+
 ## Play
 
 1. Create a room, copy its invite link, and start once everyone has joined.

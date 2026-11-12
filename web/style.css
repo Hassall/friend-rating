@@ -194,6 +194,7 @@ input::placeholder { color: #9484a5; }
 .room-options input, .choice-grid input { width: 17px; height: 17px; flex: none; margin: 0; accent-color: var(--lime); }
 .choice-panel { max-width: 800px; margin-inline: auto; padding: clamp(14px, 4vw, 30px); }
 .choice-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 18px; }
+.choice-heading > div:first-child { min-width: 0; overflow-wrap: anywhere; }
 .choice-heading h1 { font-size: clamp(24px, 4vw, 38px); line-height: 1.1; margin: 4px 0 8px; }
 .choice-heading p { margin: 0; color: var(--muted); }
 .choice-heading .countdown { width: 64px; height: 64px; font-size: 18px; flex: none; }
@@ -330,7 +331,7 @@ input::placeholder { color: #9484a5; }
   border: 1px solid var(--line); background: var(--surface); padding: 5px 6px 5px 8px;
 }
 .point-row.has-points { border-color: #5c5373; }
-.point-trait { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 740; line-height: 1.2; }
+.point-trait { display: flex; align-items: center; gap: 7px; min-width: 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 740; line-height: 1.2; }
 .stepper { display: inline-flex; flex-shrink: 0; align-items: center; gap: 3px; }
 .point-value {
   display: grid; place-items: center; height: 33px; width: 42px; border: 1px solid var(--line);
