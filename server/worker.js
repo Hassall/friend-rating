@@ -55,8 +55,10 @@ function inviteId() {
     .replaceAll("+", "-").replaceAll("/", "_");
 }
 
-function player(name, pass, now, country) {
-  return { id: randomId(), name, pass, picks: null, seen: now, joinedAt: now, country };
+async function player(name, pass, now, country, browserId) {
+  const browserKey = typeof browserId === "string" && TOKEN.test(browserId)
+    ? await digest("activity:" + browserId) : null;
+  return { id: randomId(), name, pass, picks: null, seen: now, joinedAt: now, country, browserKey };
 }
 
 function topTraits(room) {
@@ -228,11 +230,13 @@ function advance(room, now) {
   }
 }
 
-function updateLobbyPresence(room, member, now) {
-  if (room.started || now - (member.seen ?? 0) < LOBBY_HEARTBEAT_MS) return false;
+function updatePresence(room, member, now) {
+  if (now - (member.seen ?? 0) < LOBBY_HEARTBEAT_MS) return false;
   member.seen = now;
-  const host = room.players.find(({ id }) => id === currentHost(room));
-  if (host && now - (host.seen ?? 0) >= HOST_TIMEOUT_MS) room.host = member.id;
+  if (!room.started) {
+    const host = room.players.find(({ id }) => id === currentHost(room));
+    if (host && now - (host.seen ?? 0) >= HOST_TIMEOUT_MS) room.host = member.id;
+  }
   return true;
 }
 
@@ -488,7 +492,7 @@ export function createHandler(db, clock = Date.now, ownerEmail) {
       const data = method === "POST" ? await readBody(request) : {};
       if (create) {
         const now = clock();
-        const host = player(getName(data.name), pass, now, requestCountry(request));
+        const host = await player(getName(data.name), pass, now, requestCountry(request), data.browserId);
         const bucket = Math.floor(now / HOUR_MS);
         const network = await digest(bucket + ":" + (request.headers.get("CF-Connecting-IP") ?? "local"));
         const limit = await db.prepare(
@@ -519,6 +523,7 @@ export function createHandler(db, clock = Date.now, ownerEmail) {
         const now = clock();
         if (now >= (room.expiresAt ?? LEGACY_EXPIRY)) throw new GameError("This room has expired.", 410);
         let member = room.players.find((participant) => participant.pass === pass && !participant.left);
+        const presenceChanged = member && !action && updatePresence(room, member, now);
         if (member && advance(room, now)) {
           const result = await saveRoom(db, room, row.revision);
           if (result.meta.changes) {
@@ -535,7 +540,7 @@ export function createHandler(db, clock = Date.now, ownerEmail) {
           if (room.players.some((participant) => participant.name.toLowerCase() === name.toLowerCase())) {
             throw new GameError("That name is taken in this room. Try another.", 409);
           }
-          member = player(name, pass, now, requestCountry(request));
+          member = await player(name, pass, now, requestCountry(request), data.browserId);
           room.players.push(member);
           changed = true;
         } else if (!member) {
@@ -543,7 +548,7 @@ export function createHandler(db, clock = Date.now, ownerEmail) {
         } else if (action && action !== "join") {
           changed = applyAction(room, member, action, data, now);
         } else {
-          changed = updateLobbyPresence(room, member, now);
+          changed = presenceChanged || updatePresence(room, member, now);
         }
 
         if (!changed) return json(snapshot(room, member, now, row.revision));

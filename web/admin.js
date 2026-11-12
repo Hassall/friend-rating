@@ -11,6 +11,9 @@ const completionRate = document.querySelector("#completion-rate");
 const completionDetail = document.querySelector("#completion-detail");
 const averageDuration = document.querySelector("#average-duration");
 const durationDetail = document.querySelector("#duration-detail");
+const livePlayers = document.querySelector("#live-players");
+const liveRooms = document.querySelector("#live-rooms");
+const liveRoomDetail = document.querySelector("#live-room-detail");
 const number = new Intl.NumberFormat();
 const percent = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 });
 const timestamp = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -93,6 +96,14 @@ function formatDuration(ms) {
 }
 
 function renderActivity() {
+  const live = activity.live;
+  livePlayers.textContent = number.format(live.players);
+  liveRooms.textContent = number.format(live.rooms);
+  liveRoomDetail.textContent = [
+    number.format(live.lobbies) + " waiting",
+    number.format(live.playing) + " playing",
+    number.format(live.results) + " at results",
+  ].join(" · ");
   const counts = new Map(activity.counts.map((item) => [item.kind, item]));
   for (const card of cards) {
     const { total = 0, today = 0 } = counts.get(card.dataset.metric) ?? {};
@@ -133,8 +144,8 @@ async function loadActivity() {
         card.querySelector("small").textContent = "";
       }
       activity = null;
-      for (const field of [completionRate, averageDuration]) field.textContent = "—";
-      for (const field of [completionDetail, durationDetail]) field.textContent = "";
+      for (const field of [livePlayers, liveRooms, completionRate, averageDuration]) field.textContent = "—";
+      for (const field of [liveRoomDetail, completionDetail, durationDetail]) field.textContent = "";
       for (const section of [trend, countries, durations, sizes, modes]) section.replaceChildren();
       status.textContent = "Reload this page to sign in as the site owner.";
       return;

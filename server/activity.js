@@ -1,6 +1,7 @@
 const ACTIVITY_DAY_MS = 86_400_000;
 const ACTIVITY_WINDOW_MS = 30 * ACTIVITY_DAY_MS;
 const ACTIVITY_TREND_DAYS = 14;
+const LIVE_ACTIVITY_MS = 60_000;
 const ADMIN_HEADERS = { "X-Robots-Tag": "noindex, nofollow" };
 
 function requestCountry(request) {
@@ -11,7 +12,24 @@ function requestCountry(request) {
 async function readSiteActivity(db, now) {
   const since = now - ACTIVITY_WINDOW_MS;
   const trendStart = (Math.floor(now / ACTIVITY_DAY_MS) - ACTIVITY_TREND_DAYS + 1) * ACTIVITY_DAY_MS;
-  const [counts, daily, countries, durations, gameGroups] = await Promise.all([
+  const [live, counts, daily, countries, durations, gameGroups] = await Promise.all([
+    db.prepare(`
+      WITH present AS (
+        SELECT rooms.id AS room, COALESCE(json_extract(rooms.state, '$.started'), 0) AS started,
+          COALESCE(json_extract(rooms.state, '$.stage.phase'), '') AS phase,
+          COALESCE(json_extract(member.value, '$.browserKey'),
+            rooms.id || ':' || json_extract(member.value, '$.id')) AS player
+        FROM rooms, json_each(rooms.state, '$.players') AS member
+        WHERE COALESCE(json_extract(rooms.state, '$.expiresAt'), ?) > ?
+          AND COALESCE(json_extract(member.value, '$.left'), 0) = 0
+          AND json_extract(member.value, '$.seen') > ?
+      )
+      SELECT COUNT(DISTINCT player) AS players, COUNT(DISTINCT room) AS rooms,
+        COUNT(DISTINCT CASE WHEN NOT started THEN room END) AS lobbies,
+        COUNT(DISTINCT CASE WHEN started AND phase <> 'reveal' THEN room END) AS playing,
+        COUNT(DISTINCT CASE WHEN started AND phase = 'reveal' THEN room END) AS results
+      FROM present
+    `).bind(LEGACY_EXPIRY, now, now - LIVE_ACTIVITY_MS).first(),
     db.prepare(
       "SELECT kind, COUNT(*) AS total, SUM(occurred_at >= ?) AS today " +
       "FROM site_activity WHERE occurred_at >= ? AND occurred_at <= ? GROUP BY kind",
@@ -62,7 +80,7 @@ async function readSiteActivity(db, now) {
     `).bind(now, since, now).all(),
   ]);
   return {
-    counts: counts.results, daily: daily.results, trendDays: ACTIVITY_TREND_DAYS,
+    live, counts: counts.results, daily: daily.results, trendDays: ACTIVITY_TREND_DAYS,
     countries: countries.results, durations: durations.results, gameGroups: gameGroups.results, now,
   };
 }

@@ -645,6 +645,20 @@ function accept(next, sentAt) {
   renderRoom();
 }
 
+function activityBrowserId() {
+  const key = "friend-rating-browser-id";
+  try {
+    let id = localStorage.getItem(key);
+    if (!/^[a-f0-9]{32}$/.test(id ?? "")) {
+      id = crypto.randomUUID().replaceAll("-", "");
+      localStorage.setItem(key, id);
+    }
+    return id;
+  } catch {
+    return undefined;
+  }
+}
+
 async function enterRoom(event) {
   event.preventDefault();
   if (busy) return;
@@ -659,7 +673,7 @@ async function enterRoom(event) {
       (byte) => byte.toString(16).padStart(2, "0")).join("");
     pass = token;
     const sentAt = performance.now();
-    const next = await api(roomId ? "/" + roomId + "/join" : "", { name }, token);
+    const next = await api(roomId ? "/" + roomId + "/join" : "", { name, browserId: activityBrowserId() }, token);
     roomId = next.id;
     localStorage.setItem("player:" + roomId, token);
     history.replaceState(null, "", invitePath(roomId));

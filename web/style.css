@@ -322,7 +322,10 @@ input::placeholder { color: #9484a5; }
 .activity-status { min-height: 20px; margin-bottom: 10px; font-size: 13px; }
 .activity-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 175px), 1fr)); gap: 10px; }
 .activity-card { padding: 16px; }
-.activity-card h2 { margin: 0 0 8px; font-size: 14px; }
+.activity-card h2, .activity-card h3 { margin: 0 0 8px; font-size: 14px; }
+.activity-now h2, .activity-period { margin: 0 0 10px; font-size: 17px; }
+.activity-period { margin-top: 20px; }
+.activity-now h2 .dot { display: inline-block; margin-right: 5px; vertical-align: middle; }
 .activity-card strong { display: block; color: var(--lime); font-size: 29px; font-variant-numeric: tabular-nums; }
 .activity-card small { display: block; color: var(--muted); margin-top: 4px; }
 .activity-panel { min-width: 0; padding: 16px; margin-top: 16px; }

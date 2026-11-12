@@ -60,8 +60,11 @@ network address per clock hour and removes expired records as rooms are created.
 
 ## Site activity
 
-The owner can sign in at `/admin` to see site-wide activity for the last
-30 days. The dashboard refreshes every 15 seconds while open and shows totals,
+The owner can sign in at `/admin` to see live room and player counts alongside
+site-wide activity for the last 30 days. Live counts include room members seen
+within the last minute. A random ID saved in the browser helps count players
+once across rooms on the same browser; it is not an account or a room pass.
+The dashboard refreshes every 15 seconds while open and shows totals,
 a 14-day trend, completion rate, and breakdowns by country, game length, group
 size, and optional rounds. The activity API returns aggregates only. New
 activity records do not store display names. Country is recorded when the

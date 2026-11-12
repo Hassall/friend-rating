@@ -20,12 +20,20 @@
     <div class="page-heading">
       <div>
         <h1>Site activity</h1>
-        <p>Activity across Friend Rating for the last 30 days.</p>
+        <p>Live activity and trends across Friend Rating.</p>
       </div>
       <button class="button secondary" type="button" id="refresh-activity">Refresh</button>
     </div>
     <p class="muted activity-status" id="activity-status" role="status">Loading activity…</p>
-    <div class="activity-grid" aria-label="Site totals">
+    <section class="activity-now" aria-labelledby="live-heading">
+      <h2 id="live-heading"><span class="dot" aria-hidden="true"></span> Live now</h2>
+      <div class="activity-grid">
+        <article class="panel activity-card"><h3>Live players</h3><strong id="live-players">—</strong><small>Estimated unique browsers seen in the last minute</small></article>
+        <article class="panel activity-card"><h3>Live rooms</h3><strong id="live-rooms">—</strong><small id="live-room-detail"></small></article>
+      </div>
+    </section>
+    <h2 class="activity-period" id="activity-period">Last 30 days</h2>
+    <div class="activity-grid" aria-labelledby="activity-period">
       <article class="panel activity-card" data-metric="room_created"><h2>Rooms created</h2><strong>—</strong><small></small></article>
       <article class="panel activity-card" data-metric="player_joined"><h2>Player entries</h2><strong>—</strong><small></small></article>
       <article class="panel activity-card" data-metric="game_started"><h2>Games started</h2><strong>—</strong><small></small></article>
