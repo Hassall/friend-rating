@@ -4,6 +4,8 @@ const PICK_MS = 120_000;
 const BREAK_MS = 4_000;
 const REVEAL_MS = 5_000;
 const TRAIT_COUNT = 10;
+const QUESTION_COUNT = 10;
+const CHOICE_MS = 30_000;
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const LOBBY_LIFETIME_MS = 15 * MINUTE_MS;
@@ -105,6 +107,70 @@ function currentHost(room) {
   return room.host ?? activePlayers(room)[0]?.id;
 }
 
+function sampleQuestions(items, count) {
+  const shuffled = [...items];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled.slice(0, count);
+}
+
+function promptText(prompt) {
+  return "Who’s most likely to " + prompt + "?";
+}
+
+function promptResults(room) {
+  return room.questions.slice(0, room.promptCount ?? 0).map((prompt, round) => {
+    const counts = new Map();
+    for (const id of Object.values(room.promptVotes[round] ?? {})) {
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    const votes = Math.max(0, ...counts.values());
+    const winners = room.players.filter(({ id }) => counts.get(id) === votes).map(({ id }) => id);
+    return { question: promptText(prompt), winners, votes };
+  });
+}
+
+function predictionQuestions(room) {
+  const results = summarize(room).filter((result) => result.votes > 0);
+  const traits = room.traits.flatMap((id, index) => {
+    const compare = compareTrait(index);
+    const [best] = [...results].sort(compare);
+    if (!best?.totals[index]) return [];
+    return [{
+      question: "Who was rated highest for " + TRAITS[id][0] + "?",
+      winners: results.filter((result) => compare(best, result) === 0).map(({ id }) => id),
+    }];
+  });
+  const prompts = room.questions ? promptResults(room).filter(({ votes }) => votes) : [];
+  const mixed = [...sampleQuestions(traits, QUESTION_COUNT / 2), ...sampleQuestions(prompts, QUESTION_COUNT / 2)];
+  const remaining = [...traits, ...prompts].filter((question) => !mixed.includes(question));
+  mixed.push(...sampleQuestions(remaining, QUESTION_COUNT - mixed.length));
+  return sampleQuestions(mixed, QUESTION_COUNT);
+}
+
+function startGuessingOrReveal(room, at, activeCount) {
+  if (room.options?.guessing && activeCount >= 2) {
+    room.predictions = predictionQuestions(room);
+    if (room.predictions.length) {
+      room.guessVotes = {};
+      room.stage = { phase: "guessing", round: 0, deadline: at + CHOICE_MS };
+      return;
+    }
+  }
+  startReveal(room, at);
+}
+
+function startReveal(room, at) {
+  room.stage = { phase: "reveal", revealAt: at };
+  room.expiresAt = Math.min(room.expiresAt, at + TRAIT_COUNT * REVEAL_MS + RECAP_LIFETIME_MS);
+}
+
+function choiceVotes(room, phase) {
+  return phase === "most-likely" ? room.promptVotes : room.guessVotes;
+}
+
 function advance(room, now) {
   if (!room.stage) return false;
   const active = activePlayers(room);
@@ -118,8 +184,12 @@ function advance(room, now) {
     } else if ((phase === "starting" || phase === "break") && now >= deadline) {
       const target = room.players.findIndex((member, index) => index >= next && !member.left);
       if (target < 0 || active.length < 2) {
-        room.stage = { phase: "reveal", revealAt: deadline };
-        room.expiresAt = Math.min(room.expiresAt, deadline + TRAIT_COUNT * REVEAL_MS + RECAP_LIFETIME_MS);
+        if (room.options?.mostLikely && active.length >= 2) {
+          room.promptCount = 1;
+          room.stage = { phase: "most-likely", round: 0, deadline: deadline + CHOICE_MS };
+        } else {
+          startGuessingOrReveal(room, deadline, active.length);
+        }
       } else {
         room.stage = { phase: "rating", round: target, deadline: deadline + (room.roundMs ?? LEGACY_ROUND_MS) };
       }
@@ -130,6 +200,21 @@ function advance(room, now) {
       const nextRound = room.players.findIndex((member, index) => index > round && !member.left);
       room.stage = { phase: "break", deadline: Math.min(now, deadline) + BREAK_MS,
         next: nextRound >= 0 && active.length >= 2 ? nextRound : room.players.length };
+    } else if (phase === "most-likely" || phase === "guessing") {
+      const votes = choiceVotes(room, phase)[round] ?? {};
+      if (now < deadline && active.length >= 2 && !active.every(({ id }) => Object.hasOwn(votes, id))) {
+        return changed;
+      }
+      const at = Math.min(now, deadline);
+      const total = phase === "most-likely" ? room.questions.length : room.predictions.length;
+      if (round + 1 < total && active.length >= 2) {
+        if (phase === "most-likely") room.promptCount = round + 2;
+        room.stage = { phase, round: round + 1, deadline: at + CHOICE_MS };
+      } else if (phase === "most-likely") {
+        startGuessingOrReveal(room, at, active.length);
+      } else {
+        startReveal(room, at);
+      }
     } else {
       return changed;
     }
@@ -153,14 +238,31 @@ function summarize(room) {
   });
 }
 
+function compareTrait(index) {
+  return (a, b) => b.totals[index] * a.votes - a.totals[index] * b.votes;
+}
+
 function leadersFor(results, index) {
-  const compare = (a, b) => b.totals[index] * a.votes - a.totals[index] * b.votes;
+  const compare = compareTrait(index);
   const leaders = results.filter((result) => result.votes).sort(compare).slice(0, 3);
   let rank = 1;
   return leaders.map((result, i) => {
     if (i > 0 && compare(leaders[i - 1], result) !== 0) rank = i + 1;
     return { id: result.id, rank, average: result.totals[index] / result.votes };
   });
+}
+
+function guessScores(room) {
+  const predictions = room.predictions ?? [];
+  const scores = new Map();
+  predictions.forEach(({ winners }, round) => {
+    for (const [id, answer] of Object.entries(room.guessVotes[round] ?? {})) {
+      scores.set(id, (scores.get(id) ?? 0) + Number(winners.includes(answer)));
+    }
+  });
+  return room.players.filter(({ id }) => scores.has(id))
+    .map(({ id }) => ({ id, score: scores.get(id) }))
+    .sort((a, b) => b.score - a.score);
 }
 
 function snapshot(room, member, now, revision) {
@@ -176,6 +278,7 @@ function snapshot(room, member, now, revision) {
     traits: room.traits,
     traitPool: room.traitPool ?? LEGACY_TRAIT_IDS,
     roundSeconds: (room.roundMs ?? LEGACY_ROUND_MS) / 1000,
+    options: room.options,
     picks: member.picks,
     players: room.players.map(({ id, name, picks, left }) => ({ id, name, ready: Boolean(picks), left: Boolean(left) })),
   };
@@ -186,10 +289,27 @@ function snapshot(room, member, now, revision) {
     view.voteCount = activePlayers(room).filter(({ id }) => Object.hasOwn(votes, id)).length;
     view.canUnlock = Boolean(room.stage);
   }
+  if (time.phase === "most-likely" || time.phase === "guessing") {
+    const guessing = time.phase === "guessing";
+    const ballots = choiceVotes(room, time.phase)[time.round] ?? {};
+    const eligible = activePlayers(room);
+    view.question = guessing ? room.predictions[time.round].question : promptText(room.questions[time.round]);
+    view.questionCount = guessing ? room.predictions.length : room.questions.length;
+    view.choiceSeconds = CHOICE_MS / 1000;
+    view.choice = ballots[member.id] ?? null;
+    view.eligibleCount = eligible.length;
+    view.voteCount = eligible.filter(({ id }) => Object.hasOwn(ballots, id)).length;
+  }
   if (time.phase === "reveal") view.leaders = leadersFor(summarize(room), time.ranking);
   if (time.phase === "results") {
     view.results = summarize(room);
     view.rankings = room.traits.map((_, index) => leadersFor(view.results, index));
+    if (room.promptCount) view.mostLikelyResults = promptResults(room);
+    if (room.options?.guessing) {
+      view.guessScores = guessScores(room);
+      view.guessTotal = room.predictions?.length ?? 0;
+      view.guessAnswers = room.predictions?.map(({ question, winners }) => ({ question, winners })) ?? [];
+    }
   }
   return view;
 }
@@ -210,8 +330,30 @@ function applyAction(room, member, action, data, now) {
     room.started = true;
     room.roundMs = RATING_SECONDS * 1000;
     room.traitPool = TRAIT_IDS;
+    room.options = { mostLikely: data.mostLikely === true, guessing: data.guessing === true };
+    if (room.options.mostLikely) {
+      room.questions = sampleQuestions(MOST_LIKELY_PROMPTS, QUESTION_COUNT);
+      room.promptVotes = {};
+    }
     room.stage = { phase: "traits", deadline: now + PICK_MS };
-    room.expiresAt = now + GAME_LIFETIME_MS;
+    const extraRounds = Number(room.options.mostLikely) + Number(room.options.guessing);
+    room.expiresAt = now + GAME_LIFETIME_MS + extraRounds * QUESTION_COUNT * CHOICE_MS;
+    return true;
+  }
+
+  if (action === "choose" || action === "unlock-choice") {
+    if ((phase !== "most-likely" && phase !== "guessing") || phase !== data.phase || round !== data.round) {
+      throw new GameError("That question has ended.", 409);
+    }
+    const ballots = choiceVotes(room, phase)[round] ??= {};
+    if (action === "unlock-choice") {
+      delete ballots[member.id];
+      return true;
+    }
+    if (Object.hasOwn(ballots, member.id)) return false;
+    const candidates = phase === "most-likely" ? activePlayers(room) : room.players;
+    if (!candidates.some(({ id }) => id === data.player)) throw new GameError("Choose a player in this room.");
+    ballots[member.id] = data.player;
     return true;
   }
 
@@ -298,7 +440,7 @@ export function createHandler(db, clock = Date.now) {
     }
 
     try {
-      const match = pathname.match(/^\/api\/rooms\/([a-f0-9]{32}|[A-Za-z0-9_-]{16})(?:\/(join|start|picks|unlock-picks|vote|unlock|leave))?$/);
+      const match = pathname.match(/^\/api\/rooms\/([a-f0-9]{32}|[A-Za-z0-9_-]{16})(?:\/(join|start|picks|unlock-picks|vote|unlock|choose|unlock-choice|leave))?$/);
       const create = pathname === "/api/rooms" && method === "POST";
       const state = match && !match[2] && method === "GET";
       const mutate = match?.[2] && method === "POST";

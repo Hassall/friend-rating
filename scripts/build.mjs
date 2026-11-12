@@ -12,11 +12,14 @@ const files = {
 const assets = Object.fromEntries(await Promise.all(Object.entries(files).map(async ([name, type]) => [
   name, { type, body: await readFile(new URL("web" + name, root), "utf8") },
 ])));
-const source = await readFile(new URL("server/worker.js", root), "utf8");
+const [prompts, source] = await Promise.all([
+  readFile(new URL("server/prompts.js", root), "utf8"),
+  readFile(new URL("server/worker.js", root), "utf8"),
+]);
 await mkdir(new URL("dist/server/", root), { recursive: true });
 await mkdir(new URL("dist/.openai/", root), { recursive: true });
 await writeFile(
   new URL("dist/server/index.js", root),
-  "const APP_ASSETS = " + JSON.stringify(assets) + ";\n" + assets["/traits.js"].body + "\n" + source,
+  "const APP_ASSETS = " + JSON.stringify(assets) + ";\n" + assets["/traits.js"].body + "\n" + prompts + "\n" + source,
 );
 await copyFile(new URL(".openai/hosting.json", root), new URL("dist/.openai/hosting.json", root));

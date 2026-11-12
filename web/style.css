@@ -162,6 +162,44 @@ input::placeholder { color: #9484a5; }
 .invite p { color: var(--muted); font-size: 13px; line-height: 1.45; margin-top: 7px; }
 .invite input { display: block; width: 100%; margin-block: 16px 8px; font-size: 13px; }
 .invite button { width: 100%; }
+.room-options { border: 0; padding: 0; margin: 0 0 14px; min-width: 0; }
+.room-options legend { font-weight: 700; margin-bottom: 8px; }
+.room-options label, .choice-grid label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.room-options label + label { margin-top: 6px; }
+.room-options label:has(input:checked), .choice-grid label:has(input:checked) { border-color: var(--lime); }
+.room-options small, .choice-grid small { display: block; font-size: 12px; color: var(--muted); }
+.room-options input, .choice-grid input { width: 17px; height: 17px; flex: none; margin: 0; accent-color: var(--lime); }
+.choice-panel { max-width: 800px; margin-inline: auto; padding: clamp(14px, 4vw, 30px); }
+.choice-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 18px; }
+.choice-heading h1 { font-size: clamp(24px, 4vw, 38px); line-height: 1.1; margin: 4px 0 8px; }
+.choice-heading p { margin: 0; color: var(--muted); }
+.choice-heading .countdown { width: 64px; height: 64px; font-size: 18px; flex: none; }
+.choice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 7px;
+  border: 0;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+}
+.choice-grid label span { overflow-wrap: anywhere; }
+.choice-grid:disabled label { opacity: .75; cursor: default; }
+.choice-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+.choice-actions #vote-count { margin-right: auto; }
+.locked-choice { color: var(--lime); font-weight: 700; }
+.guess-results .ranking-list { max-width: 520px; margin-block: 12px; }
+.guess-results summary { cursor: pointer; }
+.guess-results details ul { padding-left: 20px; }
+.guess-results details li { margin: 8px 0; }
 .start-area { border-top: 1px solid var(--line); margin-top: 17px !important; padding-top: 15px; }
 .waiting-line { display: inline-flex; align-items: center; gap: 9px; font-size: 14px; color: var(--muted); font-weight: 650; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--violet); box-shadow: 0 0 12px #bca4ff80; }

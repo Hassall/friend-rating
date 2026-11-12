@@ -25,10 +25,17 @@ each player has their own player pass. The local server stores rooms in
 4. Lock in the vote before the timer reaches zero. You can review or unlock it
    while the round is open. The timer or the last eligible lock closes the
    round, then a four-second countdown leads to the next player or the rankings.
-5. The game reveals up to three players per trait, along with their average
+5. The host can enable either or both optional rounds before starting.
+   **Most Likely To** presents ten random questions, one at a time. Everyone
+   votes for one player per question. **Guess the Winners** asks up to ten
+   questions about the trait results and, when available, the Most Likely To
+   votes. Each correct prediction earns one point, and any tied winner counts.
+   Each question gives players 30 seconds or advances when everyone locks in.
+6. The game reveals up to three players per trait, along with their average
    points per vote. Tied players share a rank, with join order breaking ties
    for the last slot. The recap shows every player’s chart on a common
-   scale. Select a chart to view exact scores.
+   scale. Select a chart to view exact scores. The recap also shows the
+   winners of each Most Likely To question and the guessing leaderboard.
 
 The short invite link admits anyone holding it while the lobby is open.
 On the hosted site, is.gd redirects to the public homepage. The browser
@@ -43,7 +50,8 @@ timers advance independently of the host.
 player takes over. A departing player is skipped in future rounds, and
 closed rounds keep their scores. The room closes when the last player leaves.
 An unstarted room expires after 15 minutes. A started game has a one-hour
-limit, and its recap expires 10 minutes after the rankings finish or at the
+limit plus five minutes per enabled optional round. Its recap expires
+10 minutes after the rankings finish or at the
 game limit, whichever comes first. The server allows six creations per
 network address per clock hour and removes expired records as rooms are created.
 

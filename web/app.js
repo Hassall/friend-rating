@@ -32,6 +32,7 @@ let busy = false;
 let offset = 0;
 let pollTimer;
 let syncFailed = false;
+let lobbyOptions = {};
 
 function html(value) {
   const escapes = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
@@ -76,11 +77,15 @@ function avatar(member, size = "") {
 }
 
 function stageNav(step) {
-  const stages = ["Lobby", "Pick traits", "Rate friends", "Results"];
+  const stages = ["Lobby", "Pick traits", "Rate friends"];
+  if (room?.options?.mostLikely) stages.push("Most likely to");
+  if (room?.options?.guessing) stages.push("Guess the winners");
+  stages.push("Results");
+  const current = typeof step === "string" ? stages.indexOf(step) : step === 3 ? stages.length - 1 : step;
   return '<nav class="stage-nav" aria-label="Game progress"><ol>' + stages.map((stage, i) =>
-    '<li class="' + (i === step ? "current" : i < step ? "past" : "") + '"' +
-    (i === step ? ' aria-current="step"' : "") + '><span class="stage-number">' +
-    (i < step ? icon("tick", 13) : i + 1) + '</span>' + stage + '</li>'
+    '<li class="' + (i === current ? "current" : i < current ? "past" : "") + '"' +
+    (i === current ? ' aria-current="step"' : "") + '><span class="stage-number">' +
+    (i < current ? icon("tick", 13) : i + 1) + '</span>' + stage + '</li>'
   ).join("") + '</ol></nav>';
 }
 
@@ -129,13 +134,21 @@ function renderLobby() {
     '<label class="sr-only" for="invite-url">Private invite link</label><input id="invite-url" readonly value="' + html(url) + '">' +
     '<button class="button secondary" id="copy">' + icon("link") + 'Copy invite link</button>' +
     (url !== directUrl ? '<button type="button" class="button compact quiet" id="copy-direct">Copy direct link</button>' : '') +
-    (isHost ? '<div class="start-area"><button class="button primary" id="start"' + (room.players.length < 2 ? " disabled" : "") +
+    (isHost ? '<div class="start-area"><fieldset class="room-options"><legend>Optional rounds</legend>' +
+      '<label><input type="checkbox" name="mostLikely"' + (lobbyOptions.mostLikely ? ' checked' : '') +
+      '><span>Most Likely To<small>Vote on 10 random prompts.</small></span></label>' +
+      '<label><input type="checkbox" name="guessing"' + (lobbyOptions.guessing ? ' checked' : '') +
+      '><span>Guess the Winners<small>Earn a point for each correct guess.</small></span></label></fieldset>' +
+      '<button class="button primary" id="start"' + (room.players.length < 2 ? " disabled" : "") +
       '>Start game' + icon("arrow") + '</button><p>' + (room.players.length < 2 ? "Invite at least one friend to start." : "Joining closes when the game starts.") + '</p></div>'
       : '<p class="start-area waiting-line"><span class="dot"></span>Waiting for the host</p>') +
     '<div id="error" role="alert" class="error"></div></section></div>';
   document.querySelector("#copy").addEventListener("click", (event) => copyInvite(url, event.currentTarget));
   document.querySelector("#copy-direct")?.addEventListener("click", (event) => copyInvite(directUrl, event.currentTarget));
-  document.querySelector("#start")?.addEventListener("click", (event) => send("start", {}, event.currentTarget));
+  document.querySelector(".room-options")?.addEventListener("change", ({ target }) => {
+    lobbyOptions[target.name] = target.checked;
+  });
+  document.querySelector("#start")?.addEventListener("click", (event) => send("start", lobbyOptions, event.currentTarget));
 }
 
 async function copyInvite(url, control) {
@@ -216,9 +229,14 @@ function renderStarting() {
 function renderBreak() {
   const next = room.players.slice(room.next).find((member) => !member.left);
   const moreRounds = next && room.players.filter((member) => !member.left).length >= 2;
+  let nextLabel = "Trait rankings are next.";
+  if (room.players.filter((member) => !member.left).length >= 2) {
+    if (room.options?.mostLikely) nextLabel = "Most Likely To is next.";
+    else if (room.options?.guessing) nextLabel = "Guess the Winners is next.";
+  }
   app.innerHTML = stageNav(2) + '<section class="panel centered transition-panel">' +
     '<p class="round-label">Round closed</p><h1>' +
-    (moreRounds ? (next.id === room.me ? 'You’re up next.' : 'Up next · ' + html(next.name)) : 'Trait rankings are next.') +
+    (moreRounds ? (next.id === room.me ? 'You’re up next.' : 'Up next · ' + html(next.name)) : nextLabel) +
     '</h1><div class="countdown large" data-clock="4"></div></section>';
 }
 
@@ -332,6 +350,40 @@ function updatePoints() {
   });
 }
 
+function renderChoice() {
+  const guessing = room.phase === "guessing";
+  const locked = Boolean(room.choice);
+  const candidates = room.players.filter((member) => guessing || !member.left);
+  const round = { phase: room.phase, round: room.round };
+  const stage = guessing ? "Guess the winners" : "Most likely to";
+  app.innerHTML = stageNav(stage) + '<section class="panel choice-panel"><div class="choice-heading"><div>' +
+    '<p class="round-label">' + stage + ' · ' + (room.round + 1) + ' of ' + room.questionCount + '</p>' +
+    '<h1 id="choice-question">' + html(room.question) + '</h1><p>' +
+    (guessing ? "Predict who came out on top. A correct guess earns 1 point." : "Pick the friend who fits best.") +
+    '</p></div><div class="countdown" data-clock="' + room.choiceSeconds + '"></div></div>' +
+    '<form id="choice-form"><fieldset class="choice-grid" aria-labelledby="choice-question"' +
+    (locked ? ' disabled' : '') + '>' +
+    candidates.map((member) => '<label><input type="radio" name="player" value="' + member.id + '"' +
+      (member.id === room.choice ? ' checked' : '') + '>' + avatar(member) + '<span>' + html(member.name) +
+      (member.id === room.me ? ' <small>(you)</small>' : '') + '</span></label>').join("") +
+    '</fieldset><div class="choice-actions"><span class="muted" id="vote-count"></span>' +
+    (locked ? '<span class="locked-choice">' + (guessing ? "Guess locked" : "Vote locked") + '</span>' +
+      '<button type="button" class="button secondary" id="choice-unlock">Unlock</button>'
+      : '<button type="submit" class="button primary" id="choice-lock" disabled>' +
+        (guessing ? "Lock guess" : "Lock vote") + '</button>') +
+    '</div><div id="error" role="alert" class="error"></div></form></section>';
+  const form = document.querySelector("#choice-form");
+  const lock = document.querySelector("#choice-lock");
+  form.addEventListener("change", () => { if (lock) lock.disabled = !timeLeft(); });
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const player = new FormData(form).get("player");
+    if (player && timeLeft()) send("choose", { ...round, player }, lock);
+  });
+  document.querySelector("#choice-unlock")?.addEventListener("click", (event) =>
+    send("unlock-choice", round, event.currentTarget));
+}
+
 function renderReveal() {
   const [name, , glyph] = TRAITS[room.traits[room.ranking]];
   app.innerHTML = stageNav(3) + '<section class="panel reveal centered"><div class="confetti" aria-hidden="true">' +
@@ -342,12 +394,13 @@ function renderReveal() {
     '<div class="reveal-track" aria-hidden="true"><span id="reveal-fill"></span></div></section>';
 }
 
-function rankingList(leaders) {
-  return '<ol class="ranking-list">' + leaders.map(({ id, rank, average }) => {
+function rankingList(leaders, guessing = false) {
+  return '<ol class="ranking-list">' + leaders.map(({ id, rank, average, score }) => {
     const member = room.players.find((friend) => friend.id === id);
     return '<li><span class="rank-place" aria-label="Rank ' + rank + '">#' + rank + '</span>' +
       avatar(member) + '<strong class="rank-name">' + html(member.name) + '</strong>' +
-      '<span class="rank-average"><strong>' + average.toFixed(1) + '</strong> avg</span></li>';
+      '<span class="rank-average"><strong>' + (guessing ? score : average.toFixed(1)) +
+      '</strong> ' + (guessing ? 'pts' : 'avg') + '</span></li>';
   }).join("") + '</ol>';
 }
 
@@ -398,7 +451,39 @@ function renderResults() {
     room.traits.map((id, i) =>
       '<article><h3><span class="row-glyph" aria-hidden="true">' + TRAITS[id][2] + '</span>' + TRAITS[id][0] + '</h3>' +
       (room.rankings[i].length ? rankingList(room.rankings[i]) : '<p class="muted">No votes</p>') + '</article>'
-    ).join("") + '</div></section>';
+    ).join("") + '</div></section>' + renderExtraResults();
+}
+
+function winnerNames(ids) {
+  return room.players.filter(({ id }) => ids.includes(id)).map(({ name }) => html(name)).join(", ");
+}
+
+function renderExtraResults() {
+  let output = "";
+  if (room.mostLikelyResults) {
+    output += '<section class="panel all-rankings"><div class="panel-heading"><h2>Most Likely To results</h2></div>' +
+      '<div class="ranking-grid">' + room.mostLikelyResults.map(({ question, winners, votes }) =>
+        '<article><h3>' + html(question) + '</h3><p>' +
+        (votes ? '<strong>' + winnerNames(winners) + '</strong> · ' + votes + (votes === 1 ? ' vote' : ' votes') +
+          (winners.length > 1 ? ' each' : '') : 'No votes') + '</p></article>'
+      ).join("") + '</div></section>';
+  }
+  if (room.guessScores) {
+    const [best] = room.guessScores;
+    const ranked = room.guessScores.map((entry) => ({
+      ...entry, rank: room.guessScores.findIndex(({ score }) => score === entry.score) + 1,
+    }));
+    const winners = best?.score ? ranked.filter(({ rank }) => rank === 1).map(({ id }) => id) : [];
+    const message = winners.length ? winnerNames(winners) + ' won with ' + best.score + ' of ' + room.guessTotal + ' correct.'
+      : best ? 'No correct guesses this game.' : 'No guesses were scored.';
+    output += '<section class="panel all-rankings guess-results"><div class="panel-heading"><h2>' +
+      icon("trophy") + 'Guess the Winners</h2></div><p>' + message + '</p>' +
+      (ranked.length ? rankingList(ranked, true) : '') +
+      (room.guessAnswers.length ? '<details><summary>See correct answers</summary><ul>' +
+        room.guessAnswers.map(({ question, winners }) => '<li>' + html(question) +
+          ' <strong>' + winnerNames(winners) + '</strong></li>').join("") + '</ul></details>' : '') + '</section>';
+  }
+  return output;
 }
 
 function chartScale(max) {
@@ -460,38 +545,39 @@ function updateTimer() {
     clock.textContent = duration >= 30 ? Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0") : seconds;
     clock.setAttribute("aria-label", seconds + " seconds left");
     clock.style.setProperty("--progress", Math.min(100, ms / (duration * 10)) + "%");
-    clock.classList.toggle("urgent", seconds <= 5 && room.phase === "rating");
+    clock.classList.toggle("urgent", seconds <= 5 && duration >= 30);
   }
   const reveal = document.querySelector("#reveal-fill");
   if (reveal) reveal.style.width = (ms / 50) + "%";
   if (room?.deadline && !ms) {
-    document.querySelectorAll("#vote, #unlock, #submit-picks, #unlock-picks")
+    document.querySelectorAll("#vote, #unlock, #submit-picks, #unlock-picks, #choice-lock, #choice-unlock")
       .forEach((control) => { control.disabled = true; });
   }
 }
 
 function renderRoom() {
   setStatus();
-  const rosterKey = room.phase === "lobby" || room.phase === "break"
+  const rosterKey = ["lobby", "break", "most-likely", "guessing"].includes(room.phase)
     ? room.players.map(({ id, left }) => id + Number(left)).join(",") : "";
-  const key = [room.phase, room.round, room.ranking, room.voted, Boolean(room.picks), room.host, rosterKey].join(":");
+  const key = [room.phase, room.round, room.ranking, room.voted, Boolean(room.picks), room.host, rosterKey, room.choice].join(":");
   if (viewKey !== key) {
     const [oldPhase, oldRound] = viewKey.split(":");
     viewKey = key;
     const renderers = {
       lobby: renderLobby, traits: renderTraits, starting: renderStarting, rating: renderRating,
+      "most-likely": renderChoice, guessing: renderChoice,
       break: renderBreak, reveal: renderReveal, results: renderResults,
     };
     renderers[room.phase]();
     if (room.phase === "reveal") say(app.querySelector("h1").textContent + ". " + app.querySelector(".reveal").innerText);
-    else if (oldPhase !== room.phase || (room.phase === "rating" && oldRound !== String(room.round))) {
+    else if (oldPhase !== room.phase || (room.round !== undefined && oldRound !== String(room.round))) {
       say(app.querySelector("h1")?.textContent ?? "");
     }
   }
   const ready = document.querySelector("#ready-count");
   if (ready) ready.textContent = room.players.filter(({ ready }) => ready).length + " / " + room.players.length + " ready";
   const votes = document.querySelector("#vote-count");
-  if (votes) votes.textContent = room.voteCount + " / " + room.eligibleCount + " voted";
+  if (votes) votes.textContent = room.voteCount + " / " + room.eligibleCount + " " + (room.phase === "guessing" ? "guessed" : "voted");
   updateTimer();
 }
 
@@ -575,6 +661,7 @@ function exitRoom(message) {
   viewKey = "";
   syncFailed = false;
   resultId = null;
+  lobbyOptions = {};
   chosen = new Set();
   history.replaceState(null, "", "/");
   renderWelcome(message);
