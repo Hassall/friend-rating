@@ -15,6 +15,13 @@
       "when": 1794412800001,
       "tag": "0001_room_limits",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794412800002,
+      "tag": "0002_site_activity",
+      "breakpoints": true
     }
   ]
 }

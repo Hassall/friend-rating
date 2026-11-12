@@ -31,7 +31,8 @@ each player has their own player pass. The local server stores rooms in
    **Most Likely To** presents ten random questions, one at a time. Everyone
    votes for one player per question. **Guess the Winners** asks up to ten
    questions about the trait results and, when available, the Most Likely To
-   votes. Each correct prediction earns one point, and any tied winner counts.
+   votes. A five-second countdown introduces the round. Each correct
+   prediction earns one point, and any tied winner counts.
    Each question gives players 30 seconds or advances when everyone locks in.
 6. The game reveals up to three players per trait, along with their average
    points per vote. Tied players share a rank, with join order breaking ties
@@ -56,6 +57,15 @@ limit plus five minutes per enabled optional round. Its recap expires
 10 minutes after the rankings finish or at the
 game limit, whichever comes first. The server allows six creations per
 network address per clock hour and removes expired records as rooms are created.
+
+## Site activity
+
+The owner can sign in at \`/admin\` to see site-wide activity for the last
+30 days. The dashboard updates every 15 seconds while open. It counts room
+creation, player entries, game starts, and games that reach the results
+reveal. It shows recent display names and join times from rooms created
+after tracking was enabled. Set the hosted secret \`FRIEND_RATING_OWNER_EMAIL\`
+to the owner’s ChatGPT sign-in email.
 
 ## Build
 

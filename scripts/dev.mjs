@@ -12,6 +12,8 @@ const table = sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table
 if (!table) sqlite.exec(await readFile(new URL("../drizzle/0000_rooms.sql", import.meta.url), "utf8"));
 const limits = sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'room_limits'").get();
 if (!limits) sqlite.exec(await readFile(new URL("../drizzle/0001_room_limits.sql", import.meta.url), "utf8"));
+const activity = sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'site_activity'").get();
+if (!activity) sqlite.exec(await readFile(new URL("../drizzle/0002_site_activity.sql", import.meta.url), "utf8"));
 
 const db = {
   prepare(sql) {
@@ -20,6 +22,7 @@ const db = {
       bind(...values) {
         return {
           first: () => query.get(...values),
+          all: () => ({ results: query.all(...values) }),
           run: () => ({ meta: query.run(...values) }),
         };
       },
@@ -29,7 +32,7 @@ const db = {
 
 const host = process.env.FRIEND_RATING_HOST ?? "127.0.0.1";
 const port = Number(process.env.FRIEND_RATING_PORT ?? 4173);
-const handle = createHandler(db);
+const handle = createHandler(db, Date.now, process.env.FRIEND_RATING_OWNER_EMAIL);
 createServer(async (request, response) => {
   try {
     const hasBody = request.method !== "GET" && request.method !== "HEAD";

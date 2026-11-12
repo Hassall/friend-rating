@@ -29,7 +29,7 @@ let chosen = new Set();
 let points = [];
 let resultId = null;
 let busy = false;
-let offset = 0;
+let serverTimeOffset = 0;
 let pollTimer;
 let syncFailed = false;
 
@@ -161,13 +161,19 @@ function renderLobby() {
     if (start.isConnected) start.disabled = room.players.length < 2;
     if (focused && target.isConnected && document.activeElement === document.body) target.focus();
   });
-  start?.addEventListener("click", (event) => send("start", {}, event.currentTarget));
+  start?.addEventListener("click", (event) => send("start", {
+    pickSeconds: Number(settings.elements.namedItem("pickSeconds").value),
+    mostLikely: settings.elements.namedItem("mostLikely").checked,
+    guessing: settings.elements.namedItem("guessing").checked,
+  }, event.currentTarget));
 }
 
 function syncLobbySettings() {
   const settings = document.querySelector("#room-settings");
   if (!settings || busy) return;
-  settings.elements.namedItem("pickSeconds").value = room.pickSeconds ?? DEFAULT_PICK_SECONDS;
+  const pickTime = settings.elements.namedItem("pickSeconds");
+  const savedTime = String(room.pickSeconds ?? DEFAULT_PICK_SECONDS);
+  if (pickTime.value !== savedTime) pickTime.value = savedTime;
   settings.elements.namedItem("mostLikely").checked = Boolean(room.options?.mostLikely);
   settings.elements.namedItem("guessing").checked = Boolean(room.options?.guessing);
 }
@@ -192,8 +198,14 @@ function renderTraits() {
   if (locked) chosen = new Set(room.picks);
   app.innerHTML = stageNav(1) + '<div class="page-heading"><div><h1>' +
     (locked ? "Your picks are in." : "Pick 10 traits.") + '</h1><p>' +
-    (locked ? "Review your picks or unlock them while selection is open." : "Choose the traits you want in the game. The ten most popular make the cut.") +
+    (locked ? "Review your picks or unlock them while selection is open." : "The 10 most popular traits make the cut. The timer ends early if everyone submits.") +
     '</p></div><span class="small-pill ready-count" id="ready-count"></span></div>' +
+    '<div class="selection-bar panel"><div class="pick-meter"><strong id="selection-count"></strong><div class="pips" aria-hidden="true">' +
+    Array.from({ length: 10 }, () => "<span></span>").join("") + '</div></div>' +
+    (room.deadline ? '<div class="pick-clock">' + icon("clock", 18) + '<div><small>Time left</small>' +
+      '<span data-clock="' + (room.pickSeconds ?? DEFAULT_PICK_SECONDS) + '"></span></div></div>' : "") +
+    (locked ? '<button id="unlock-picks" class="button secondary">Unlock picks</button>' :
+      '<button id="submit-picks" class="button primary">Submit picks' + icon("arrow") + '</button>') + '</div>' +
     '<section class="panel trait-panel" aria-label="Available traits"><div class="trait-grid">' +
     sortedTraits.filter(({ index }) => pool.includes(index)).map(({ index }) => {
       const [name, description, glyph] = TRAITS[index];
@@ -203,12 +215,6 @@ function renderTraits() {
       '</span><span class="trait-text"><strong>' + name + '</strong><small>' + description +
       '</small></span><span class="pick-check">' + icon("tick", 14) + '</span></button>');
     }).join("") + '</div></section>' +
-    '<div class="selection-bar panel"><div class="pick-meter"><strong id="selection-count"></strong><div class="pips" aria-hidden="true">' +
-    Array.from({ length: 10 }, () => "<span></span>").join("") + '</div></div>' +
-    (room.deadline ? '<span class="small-pill pick-clock">' + icon("clock", 15) +
-      '<span data-clock="' + (room.pickSeconds ?? DEFAULT_PICK_SECONDS) + '"></span></span>' : "") +
-    (locked ? '<button id="unlock-picks" class="button secondary">Unlock picks</button>' :
-      '<button id="submit-picks" class="button primary">Submit picks' + icon("arrow") + '</button>') + '</div>' +
     '<div id="error" role="alert" class="error"></div>';
   document.querySelector(".trait-grid").addEventListener("click", (event) => {
     const control = event.target.closest("[data-trait]");
@@ -370,6 +376,15 @@ function updatePoints() {
     row.querySelector('[data-step="remove"]').disabled = points[index] === 0;
     row.querySelector('[data-step="add"]').disabled = rest === 0;
   });
+}
+
+function renderGuessIntro() {
+  app.innerHTML = stageNav("Guess the winners") + '<section class="panel centered transition-panel guess-intro">' +
+    '<span class="panel-icon">' + icon("trophy", 24) + '</span><h1>Guess the Winners</h1>' +
+    '<p>Predict who came out on top. Each correct guess earns 1 point.</p>' +
+    '<p>' + room.questionCount + (room.questionCount === 1 ? ' question' : ' questions') + ' · ' +
+    room.choiceSeconds + ' seconds each</p><div class="countdown large" data-clock="' +
+    room.introSeconds + '"></div><p class="muted">First question starts soon</p></section>';
 }
 
 function renderChoice() {
@@ -555,7 +570,7 @@ app.addEventListener("click", (event) => {
 });
 
 function timeLeft() {
-  return room?.deadline ? Math.max(0, room.deadline - (Date.now() + offset)) : 0;
+  return room?.deadline ? Math.max(0, room.deadline - (performance.now() + serverTimeOffset)) : 0;
 }
 
 function updateTimer() {
@@ -587,7 +602,7 @@ function renderRoom() {
     viewKey = key;
     const renderers = {
       lobby: renderLobby, traits: renderTraits, starting: renderStarting, rating: renderRating,
-      "most-likely": renderChoice, guessing: renderChoice,
+      "most-likely": renderChoice, "guess-intro": renderGuessIntro, guessing: renderChoice,
       break: renderBreak, reveal: renderReveal, results: renderResults,
     };
     renderers[room.phase]();
@@ -624,7 +639,7 @@ function accept(next, sentAt) {
   if (!next.phase) throw new Error("The room couldn’t sync. Try again.");
   if (room && (next.revision < room.revision || (next.revision === room.revision && next.now < room.now))) return;
   room = next;
-  offset = next.now - (sentAt + Date.now()) / 2;
+  serverTimeOffset = next.now - (sentAt + performance.now()) / 2;
   syncFailed = false;
   renderRoom();
 }
@@ -642,7 +657,7 @@ async function enterRoom(event) {
     const token = pass || Array.from(crypto.getRandomValues(new Uint8Array(16)),
       (byte) => byte.toString(16).padStart(2, "0")).join("");
     pass = token;
-    const sentAt = Date.now();
+    const sentAt = performance.now();
     const next = await api(roomId ? "/" + roomId + "/join" : "", { name }, token);
     roomId = next.id;
     localStorage.setItem("player:" + roomId, token);
@@ -661,7 +676,7 @@ async function send(action, data, control) {
   busy = control.disabled = true;
   notice();
   try {
-    const sentAt = Date.now();
+    const sentAt = performance.now();
     const next = await api("/" + roomId + "/" + action, data);
     busy = false;
     if (next.left) {
@@ -698,7 +713,7 @@ async function poll() {
   if (!roomId || !pass) return;
   const pollingRoom = roomId;
   try {
-    const sentAt = Date.now();
+    const sentAt = performance.now();
     const next = await api("/" + pollingRoom);
     if (pollingRoom !== roomId) return;
     accept(next, sentAt);

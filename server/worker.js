@@ -5,6 +5,7 @@ const REVEAL_MS = 5_000;
 const TRAIT_COUNT = 10;
 const QUESTION_COUNT = 10;
 const CHOICE_MS = 30_000;
+const GUESS_INTRO_MS = 5_000;
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const LOBBY_LIFETIME_MS = 15 * MINUTE_MS;
@@ -55,7 +56,7 @@ function inviteId() {
 }
 
 function player(name, pass, now) {
-  return { id: randomId(), name, pass, picks: null, seen: now };
+  return { id: randomId(), name, pass, picks: null, seen: now, joinedAt: now };
 }
 
 function topTraits(room) {
@@ -154,7 +155,7 @@ function startGuessingOrReveal(room, at, activeCount) {
     room.predictions = predictionQuestions(room);
     if (room.predictions.length) {
       room.guessVotes = {};
-      room.stage = { phase: "guessing", round: 0, deadline: at + CHOICE_MS };
+      room.stage = { phase: "guess-intro", deadline: at + GUESS_INTRO_MS };
       return;
     }
   }
@@ -199,6 +200,12 @@ function advance(room, now) {
       const nextRound = room.players.findIndex((member, index) => index > round && !member.left);
       room.stage = { phase: "break", deadline: Math.min(now, deadline) + BREAK_MS,
         next: nextRound >= 0 && active.length >= 2 ? nextRound : room.players.length };
+    } else if (phase === "guess-intro" && (now >= deadline || active.length < 2)) {
+      if (active.length < 2) {
+        startReveal(room, Math.min(now, deadline));
+      } else {
+        room.stage = { phase: "guessing", round: 0, deadline: deadline + CHOICE_MS };
+      }
     } else if (phase === "most-likely" || phase === "guessing") {
       const votes = choiceVotes(room, phase)[round] ?? {};
       if (now < deadline && active.length >= 2 && !active.every(({ id }) => Object.hasOwn(votes, id))) {
@@ -300,6 +307,11 @@ function snapshot(room, member, now, revision) {
     view.eligibleCount = eligible.length;
     view.voteCount = eligible.filter(({ id }) => Object.hasOwn(ballots, id)).length;
   }
+  if (time.phase === "guess-intro") {
+    view.questionCount = room.predictions.length;
+    view.choiceSeconds = CHOICE_MS / 1000;
+    view.introSeconds = GUESS_INTRO_MS / 1000;
+  }
   if (time.phase === "reveal") view.leaders = leadersFor(summarize(room), time.ranking);
   if (time.phase === "results") {
     view.results = summarize(room);
@@ -349,6 +361,7 @@ function applyAction(room, member, action, data, now) {
     if (action === "settings") return true;
     if (room.players.length < 2) throw new GameError("Invite at least one friend first.");
     room.started = true;
+    room.startedAt = now;
     room.roundMs = RATING_SECONDS * 1000;
     room.traitPool = TRAIT_IDS;
     if (room.options.mostLikely) {
@@ -444,10 +457,14 @@ async function readBody(request) {
   }
 }
 
-export function createHandler(db, clock = Date.now) {
+export function createHandler(db, clock = Date.now, ownerEmail) {
   return async function handle(request) {
     const { pathname } = new URL(request.url);
     const { method } = request;
+
+    if (["/admin", "/admin/", "/admin.html", "/admin.js", "/api/admin/activity"].includes(pathname)) {
+      return handleAdmin(request, pathname, db, clock, ownerEmail);
+    }
 
     if (method === "GET" && !pathname.startsWith("/api/")) {
       const invite = /^\/(?:r\/[A-Za-z0-9_-]{16}|room\/[a-f0-9]{32})$/.test(pathname);
@@ -480,12 +497,14 @@ export function createHandler(db, clock = Date.now) {
         ).bind(network, bucket, ROOM_LIMIT).run();
         if (!limit.meta.changes) throw new GameError("This network has created too many rooms this hour. Try again later.", 429);
         await db.prepare("DELETE FROM room_limits WHERE bucket < ?").bind(bucket).run();
+        await db.prepare("DELETE FROM site_activity WHERE rowid IN (SELECT rowid FROM site_activity WHERE occurred_at < ? LIMIT 100)")
+          .bind(now - ACTIVITY_WINDOW_MS).run();
         await db.prepare("DELETE FROM rooms WHERE id IN (SELECT id FROM rooms WHERE json_extract(state, '$.expiresAt') <= ? LIMIT 30)")
           .bind(now).run();
         if (now >= LEGACY_EXPIRY) {
           await db.prepare("DELETE FROM rooms WHERE id IN (SELECT id FROM rooms WHERE json_extract(state, '$.expiresAt') IS NULL LIMIT ?)").bind(30).run();
         }
-        const room = { id: inviteId(), players: [host], host: host.id, started: false, traits: [], votes: {},
+        const room = { id: inviteId(), players: [host], host: host.id, createdAt: now, started: false, traits: [], votes: {},
           stage: { phase: "lobby" }, expiresAt: now + LOBBY_LIFETIME_MS };
         await db.prepare("INSERT INTO rooms (id, state) VALUES (?, ?)").bind(room.id, JSON.stringify(room)).run();
         return json(snapshot(room, host, now, 0), 201);
@@ -554,6 +573,6 @@ function saveRoom(db, room, revision) {
 
 export default {
   fetch(request, env) {
-    return createHandler(env.DB)(request);
+    return createHandler(env.DB, Date.now, env.FRIEND_RATING_OWNER_EMAIL)(request);
   },
 };

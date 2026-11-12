@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Site activity · Friend Rating</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/admin.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="/" aria-label="Friend Rating home"><span class="brand-icon" aria-hidden="true">✦</span>
+        Friend Rating<span class="brand-period" aria-hidden="true">.</span></a>
+    </div>
+  </header>
+  <main class="site-main admin-dashboard">
+    <div class="page-heading">
+      <div>
+        <h1>Site activity</h1>
+        <p>Activity across Friend Rating for the last 30 days.</p>
+      </div>
+      <button class="button secondary" type="button" id="refresh-activity">Refresh</button>
+    </div>
+    <p class="muted activity-status" id="activity-status" role="status">Loading activity…</p>
+    <div class="activity-grid" aria-label="Site totals">
+      <article class="panel activity-card" data-metric="room_created"><h2>Rooms created</h2><strong>—</strong><small></small></article>
+      <article class="panel activity-card" data-metric="player_joined"><h2>Player entries</h2><strong>—</strong><small></small></article>
+      <article class="panel activity-card" data-metric="game_started"><h2>Games started</h2><strong>—</strong><small></small></article>
+      <article class="panel activity-card" data-metric="game_completed"><h2>Games completed</h2><strong>—</strong><small></small></article>
+    </div>
+    <section class="panel activity-players">
+      <h2>Recent player entries</h2>
+      <p class="muted">Up to 50 room entries. A player can appear more than once.</p>
+      <div class="activity-table">
+        <table>
+          <thead><tr><th scope="col">Display name</th><th scope="col">Role on entry</th><th scope="col">Joined</th></tr></thead>
+          <tbody id="player-entries"><tr><td colspan="3">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
