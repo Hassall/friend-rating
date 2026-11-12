@@ -5,6 +5,7 @@
   "engines": { "node": ">=24" },
   "scripts": {
     "build": "node scripts/build.mjs",
+    "build:pages": "node scripts/build-pages.mjs",
     "dev": "node scripts/dev.mjs"
   }
 }

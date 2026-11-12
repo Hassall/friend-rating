@@ -1,4 +1,5 @@
 import { DEFAULT_PICK_SECONDS, LEGACY_TRAIT_IDS, PICK_SECONDS_OPTIONS, POINT_STEP, RATING_SECONDS, TRAITS, TRAIT_IDS } from "./traits.js";
+import { LIVE_ORIGIN, PAGES_ORIGIN } from "./origins.js";
 
 const app = document.querySelector("#app");
 const header = document.querySelector("#header-status");
@@ -14,8 +15,8 @@ const ICONS = {
   trophy: '<path d="M7 4h10v7a5 5 0 0 1-10 0V4Zm0 1H3v2a4 4 0 0 0 4 4m10-6h4v2a4 4 0 0 1-4 4m-5 5v4m-4 0h8"/>',
 };
 
-const LIVE_ORIGIN = "https://friend-rating-after-hours.corkyravioli5.chatgpt.site";
 const SHORT_INVITE = "https://is.gd/Fzi0MX";
+const ROOM_API_ORIGIN = location.origin === PAGES_ORIGIN ? LIVE_ORIGIN : "";
 const roomFragment = location.pathname === "/" && location.hash.match(/^#r=([A-Za-z0-9_-]{16})$/)?.[1];
 if (roomFragment) history.replaceState(null, "", invitePath(roomFragment));
 const roomPath = location.pathname.match(/^\/(?:r|room)\/([a-f0-9]{32}|[A-Za-z0-9_-]{16})$/);
@@ -620,7 +621,7 @@ function renderRoom() {
 }
 
 async function api(path, data, token = pass) {
-  const response = await fetch("/api/rooms" + path, {
+  const response = await fetch(ROOM_API_ORIGIN + "/api/rooms" + path, {
     method: data ? "POST" : "GET",
     headers: { "X-Player-Pass": token, ...(data ? { "Content-Type": "application/json" } : {}) },
     body: data ? JSON.stringify(data) : undefined,

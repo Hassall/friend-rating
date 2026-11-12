@@ -458,7 +458,7 @@ async function readBody(request) {
 }
 
 export function createHandler(db, clock = Date.now, ownerEmail) {
-  return async function handle(request) {
+  async function handle(request) {
     const { pathname } = new URL(request.url);
     const { method } = request;
 
@@ -563,6 +563,30 @@ export function createHandler(db, clock = Date.now, ownerEmail) {
       console.error(error);
       return json({ error: "The room couldn’t sync. Try again." }, 500);
     }
+  }
+
+  return async (request) => {
+    const { pathname } = new URL(request.url);
+    const roomApi = pathname === "/api/rooms" || pathname.startsWith("/api/rooms/");
+    if (!roomApi || request.headers.get("Origin") !== PAGES_ORIGIN) return handle(request);
+
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": PAGES_ORIGIN,
+          "Access-Control-Allow-Methods": "GET, POST",
+          "Access-Control-Allow-Headers": "Content-Type, X-Player-Pass",
+          "Access-Control-Max-Age": "600",
+          "Vary": "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
+        },
+      });
+    }
+
+    const response = await handle(request);
+    response.headers.set("Access-Control-Allow-Origin", PAGES_ORIGIN);
+    response.headers.append("Vary", "Origin");
+    return response;
   };
 }
 

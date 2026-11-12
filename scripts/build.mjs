@@ -5,6 +5,7 @@ const files = {
   "/index.html": "text/html; charset=utf-8",
   "/style.css": "text/css; charset=utf-8",
   "/app.js": "text/javascript; charset=utf-8",
+  "/origins.js": "text/javascript; charset=utf-8",
   "/admin.html": "text/html; charset=utf-8",
   "/admin.js": "text/javascript; charset=utf-8",
   "/traits.js": "text/javascript; charset=utf-8",
@@ -23,6 +24,7 @@ await mkdir(new URL("dist/server/", root), { recursive: true });
 await mkdir(new URL("dist/.openai/", root), { recursive: true });
 await writeFile(
   new URL("dist/server/index.js", root),
-  "const APP_ASSETS = " + JSON.stringify(assets) + ";\n" + [assets["/traits.js"].body, prompts, activity, source].join("\n"),
+  "const APP_ASSETS = " + JSON.stringify(assets) + ";\n" +
+    [assets["/traits.js"].body, assets["/origins.js"].body, prompts, activity, source].join("\n"),
 );
 await copyFile(new URL(".openai/hosting.json", root), new URL("dist/.openai/hosting.json", root));

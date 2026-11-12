@@ -2,7 +2,7 @@
 
 A desktop-first party game for a host and up to 20 invited friends.
 
-Play online at https://friend-rating-after-hours.corkyravioli5.chatgpt.site.
+Play online at https://friendrating.pages.dev.
 
 ## Run locally
 
@@ -60,7 +60,7 @@ network address per clock hour and removes expired records as rooms are created.
 
 ## Site activity
 
-The owner can sign in at \`/admin\` to see site-wide activity for the last
+The owner can sign in at `/admin` to see site-wide activity for the last
 30 days. The dashboard updates every 15 seconds while open. It counts room
 creation, player entries, game starts, and games that reach the results
 reveal. It shows recent display names and join times from rooms created
@@ -73,3 +73,8 @@ Run `node scripts/build.mjs` to produce the Sites Worker at
 `dist/server/index.js`. Hosting uses the `DB` D1 binding and the SQL migration
 in `drizzle/`. For internet play, the hosting audience must allow each invited
 friend to load the app, and the individual room URL controls entry to the game.
+
+Run `node scripts/build-pages.mjs` and upload the contents of `dist/pages`
+to the `friendrating` Cloudflare Pages project when updating the public
+frontend. Pages uses the Sites room API and sends `/admin` to the existing
+owner dashboard. Publish the Sites Worker when the API changes.
