@@ -1,6 +1,5 @@
 const INVITE_LIMIT = 20;
 const LEGACY_ROUND_MS = 30_000;
-const PICK_MS = 120_000;
 const BREAK_MS = 4_000;
 const REVEAL_MS = 5_000;
 const TRAIT_COUNT = 10;
@@ -278,6 +277,7 @@ function snapshot(room, member, now, revision) {
     traits: room.traits,
     traitPool: room.traitPool ?? LEGACY_TRAIT_IDS,
     roundSeconds: (room.roundMs ?? LEGACY_ROUND_MS) / 1000,
+    pickSeconds: room.pickSeconds ?? DEFAULT_PICK_SECONDS,
     options: room.options,
     picks: member.picks,
     players: room.players.map(({ id, name, picks, left }) => ({ id, name, ready: Boolean(picks), left: Boolean(left) })),
@@ -314,6 +314,20 @@ function snapshot(room, member, now, revision) {
   return view;
 }
 
+function updateSettings(room, data) {
+  if (Object.hasOwn(data, "pickSeconds")) {
+    if (!PICK_SECONDS_OPTIONS.includes(data.pickSeconds)) throw new GameError("Choose an available trait selection time.");
+    room.pickSeconds = data.pickSeconds;
+  }
+  room.options ??= { mostLikely: false, guessing: false };
+  for (const option of ["mostLikely", "guessing"]) {
+    if (Object.hasOwn(data, option)) {
+      if (typeof data[option] !== "boolean") throw new GameError("Choose whether to include the optional round.");
+      room.options[option] = data[option];
+    }
+  }
+}
+
 function applyAction(room, member, action, data, now) {
   const { phase, round } = timeline(room, now);
   if (action === "leave") {
@@ -323,19 +337,25 @@ function applyAction(room, member, action, data, now) {
     if (phase === "rating") delete (room.votes[round] ?? {})[member.id];
     return true;
   }
-  if (action === "start") {
-    if (member.id !== currentHost(room)) throw new GameError("Only the host can start the game.", 403);
-    if (phase !== "lobby") return false;
+  if (action === "start" || action === "settings") {
+    if (member.id !== currentHost(room)) {
+      throw new GameError(action === "start" ? "Only the host can start the game." : "Only the host can change game settings.", 403);
+    }
+    if (phase !== "lobby") {
+      if (action === "settings") throw new GameError("The game has already started.", 409);
+      return false;
+    }
+    updateSettings(room, data);
+    if (action === "settings") return true;
     if (room.players.length < 2) throw new GameError("Invite at least one friend first.");
     room.started = true;
     room.roundMs = RATING_SECONDS * 1000;
     room.traitPool = TRAIT_IDS;
-    room.options = { mostLikely: data.mostLikely === true, guessing: data.guessing === true };
     if (room.options.mostLikely) {
       room.questions = sampleQuestions(MOST_LIKELY_PROMPTS, QUESTION_COUNT);
       room.promptVotes = {};
     }
-    room.stage = { phase: "traits", deadline: now + PICK_MS };
+    room.stage = { phase: "traits", deadline: now + (room.pickSeconds ?? DEFAULT_PICK_SECONDS) * 1000 };
     const extraRounds = Number(room.options.mostLikely) + Number(room.options.guessing);
     room.expiresAt = now + GAME_LIFETIME_MS + extraRounds * QUESTION_COUNT * CHOICE_MS;
     return true;
@@ -440,7 +460,7 @@ export function createHandler(db, clock = Date.now) {
     }
 
     try {
-      const match = pathname.match(/^\/api\/rooms\/([a-f0-9]{32}|[A-Za-z0-9_-]{16})(?:\/(join|start|picks|unlock-picks|vote|unlock|choose|unlock-choice|leave))?$/);
+      const match = pathname.match(/^\/api\/rooms\/([a-f0-9]{32}|[A-Za-z0-9_-]{16})(?:\/(join|settings|start|picks|unlock-picks|vote|unlock|choose|unlock-choice|leave))?$/);
       const create = pathname === "/api/rooms" && method === "POST";
       const state = match && !match[2] && method === "GET";
       const mutate = match?.[2] && method === "POST";

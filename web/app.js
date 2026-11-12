@@ -1,4 +1,4 @@
-import { LEGACY_TRAIT_IDS, POINT_STEP, RATING_SECONDS, TRAITS, TRAIT_IDS } from "./traits.js";
+import { DEFAULT_PICK_SECONDS, LEGACY_TRAIT_IDS, PICK_SECONDS_OPTIONS, POINT_STEP, RATING_SECONDS, TRAITS, TRAIT_IDS } from "./traits.js";
 
 const app = document.querySelector("#app");
 const header = document.querySelector("#header-status");
@@ -32,7 +32,6 @@ let busy = false;
 let offset = 0;
 let pollTimer;
 let syncFailed = false;
-let lobbyOptions = {};
 
 function html(value) {
   const escapes = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
@@ -78,8 +77,8 @@ function avatar(member, size = "") {
 
 function stageNav(step) {
   const stages = ["Lobby", "Pick traits", "Rate friends"];
-  if (room?.options?.mostLikely) stages.push("Most likely to");
-  if (room?.options?.guessing) stages.push("Guess the winners");
+  if (step !== 0 && room?.options?.mostLikely) stages.push("Most likely to");
+  if (step !== 0 && room?.options?.guessing) stages.push("Guess the winners");
   stages.push("Results");
   const current = typeof step === "string" ? stages.indexOf(step) : step === 3 ? stages.length - 1 : step;
   return '<nav class="stage-nav" aria-label="Game progress"><ol>' + stages.map((stage, i) =>
@@ -134,21 +133,40 @@ function renderLobby() {
     '<label class="sr-only" for="invite-url">Private invite link</label><input id="invite-url" readonly value="' + html(url) + '">' +
     '<button class="button secondary" id="copy">' + icon("link") + 'Copy invite link</button>' +
     (url !== directUrl ? '<button type="button" class="button compact quiet" id="copy-direct">Copy direct link</button>' : '') +
-    (isHost ? '<div class="start-area"><fieldset class="room-options"><legend>Optional rounds</legend>' +
-      '<label><input type="checkbox" name="mostLikely"' + (lobbyOptions.mostLikely ? ' checked' : '') +
-      '><span>Most Likely To<small>Vote on 10 random prompts.</small></span></label>' +
-      '<label><input type="checkbox" name="guessing"' + (lobbyOptions.guessing ? ' checked' : '') +
-      '><span>Guess the Winners<small>Earn a point for each correct guess.</small></span></label></fieldset>' +
-      '<button class="button primary" id="start"' + (room.players.length < 2 ? " disabled" : "") +
+    '<fieldset id="room-settings" class="room-settings"' + (isHost ? '' : ' disabled') + '><legend>Game settings</legend>' +
+      '<div class="pick-setting"><label for="pick-seconds">Trait selection time</label><select id="pick-seconds" name="pickSeconds">' +
+      PICK_SECONDS_OPTIONS.map((seconds) => '<option value="' + seconds + '">' +
+        (seconds < 60 ? seconds + " seconds" : seconds / 60 + (seconds === 60 ? " minute" : " minutes")) + '</option>').join("") +
+      '</select></div><fieldset class="room-options"><legend>Optional rounds</legend>' +
+      '<label><input type="checkbox" name="mostLikely"><span>Most Likely To<small>Vote on 10 random prompts.</small></span></label>' +
+      '<label><input type="checkbox" name="guessing"><span>Guess the Winners<small>Earn a point for each correct guess.</small></span></label>' +
+      '</fieldset></fieldset>' +
+    (isHost ? '<div class="start-area"><button class="button primary" id="start"' + (room.players.length < 2 ? " disabled" : "") +
       '>Start game' + icon("arrow") + '</button><p>' + (room.players.length < 2 ? "Invite at least one friend to start." : "Joining closes when the game starts.") + '</p></div>'
       : '<p class="start-area waiting-line"><span class="dot"></span>Waiting for the host</p>') +
     '<div id="error" role="alert" class="error"></div></section></div>';
   document.querySelector("#copy").addEventListener("click", (event) => copyInvite(url, event.currentTarget));
   document.querySelector("#copy-direct")?.addEventListener("click", (event) => copyInvite(directUrl, event.currentTarget));
-  document.querySelector(".room-options")?.addEventListener("change", ({ target }) => {
-    lobbyOptions[target.name] = target.checked;
+  const settings = document.querySelector("#room-settings");
+  const start = document.querySelector("#start");
+  if (isHost) settings.addEventListener("change", async ({ target }) => {
+    const value = target.name === "pickSeconds" ? Number(target.value) : target.checked;
+    const focused = document.activeElement === target;
+    start.disabled = true;
+    await send("settings", { [target.name]: value }, settings);
+    syncLobbySettings();
+    if (start.isConnected) start.disabled = room.players.length < 2;
+    if (focused && target.isConnected && document.activeElement === document.body) target.focus();
   });
-  document.querySelector("#start")?.addEventListener("click", (event) => send("start", lobbyOptions, event.currentTarget));
+  start?.addEventListener("click", (event) => send("start", {}, event.currentTarget));
+}
+
+function syncLobbySettings() {
+  const settings = document.querySelector("#room-settings");
+  if (!settings || busy) return;
+  settings.elements.namedItem("pickSeconds").value = room.pickSeconds ?? DEFAULT_PICK_SECONDS;
+  settings.elements.namedItem("mostLikely").checked = Boolean(room.options?.mostLikely);
+  settings.elements.namedItem("guessing").checked = Boolean(room.options?.guessing);
 }
 
 async function copyInvite(url, control) {
@@ -184,7 +202,8 @@ function renderTraits() {
     }).join("") + '</div></section>' +
     '<div class="selection-bar panel"><div class="pick-meter"><strong id="selection-count"></strong><div class="pips" aria-hidden="true">' +
     Array.from({ length: 10 }, () => "<span></span>").join("") + '</div></div>' +
-    (room.deadline ? '<span class="small-pill pick-clock">' + icon("clock", 15) + '<span data-clock="120"></span></span>' : "") +
+    (room.deadline ? '<span class="small-pill pick-clock">' + icon("clock", 15) +
+      '<span data-clock="' + (room.pickSeconds ?? DEFAULT_PICK_SECONDS) + '"></span></span>' : "") +
     (locked ? '<button id="unlock-picks" class="button secondary">Unlock picks</button>' :
       '<button id="submit-picks" class="button primary">Submit picks' + icon("arrow") + '</button>') + '</div>' +
     '<div id="error" role="alert" class="error"></div>';
@@ -574,6 +593,7 @@ function renderRoom() {
       say(app.querySelector("h1")?.textContent ?? "");
     }
   }
+  syncLobbySettings();
   const ready = document.querySelector("#ready-count");
   if (ready) ready.textContent = room.players.filter(({ ready }) => ready).length + " / " + room.players.length + " ready";
   const votes = document.querySelector("#vote-count");
@@ -661,7 +681,6 @@ function exitRoom(message) {
   viewKey = "";
   syncFailed = false;
   resultId = null;
-  lobbyOptions = {};
   chosen = new Set();
   history.replaceState(null, "", "/");
   renderWelcome(message);

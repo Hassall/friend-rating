@@ -162,6 +162,21 @@ input::placeholder { color: #9484a5; }
 .invite p { color: var(--muted); font-size: 13px; line-height: 1.45; margin-top: 7px; }
 .invite input { display: block; width: 100%; margin-block: 16px 8px; font-size: 13px; }
 .invite button { width: 100%; }
+.room-settings { border: 0; padding: 0; margin: 16px 0 0; min-width: 0; }
+.room-settings > legend { font-weight: 750; margin-bottom: 8px; }
+.pick-setting { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.pick-setting label { color: var(--muted); font-size: 13px; }
+.pick-setting select {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 13px;
+}
+.pick-setting select:focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; }
+.room-settings:disabled .room-options label { cursor: default; }
 .room-options { border: 0; padding: 0; margin: 0 0 14px; min-width: 0; }
 .room-options legend { font-weight: 700; margin-bottom: 8px; }
 .room-options label, .choice-grid label {

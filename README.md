@@ -14,7 +14,8 @@ each player has their own player pass. The local server stores rooms in
 ## Play
 
 1. Create a room, copy its invite link, and start once everyone has joined.
-2. Each player has two minutes to lock in ten traits. You can review or unlock
+2. The host sets how long players have to lock in ten traits. The default is
+   two minutes. You can review or unlock
    your picks until the timer expires or everyone locks in. Only locked picks
    count. The ten most popular traits go through, with alphabetical tiebreaks
    for traits that received votes. Preset traits fill any remaining slots.
@@ -26,6 +27,7 @@ each player has their own player pass. The local server stores rooms in
    while the round is open. The timer or the last eligible lock closes the
    round, then a four-second countdown leads to the next player or the rankings.
 5. The host can enable either or both optional rounds before starting.
+   Guests can see the timer and optional rounds selected in the lobby.
    **Most Likely To** presents ten random questions, one at a time. Everyone
    votes for one player per question. **Guess the Winners** asks up to ten
    questions about the trait results and, when available, the Most Likely To
