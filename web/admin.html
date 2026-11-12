@@ -30,17 +30,44 @@
       <article class="panel activity-card" data-metric="player_joined"><h2>Player entries</h2><strong>—</strong><small></small></article>
       <article class="panel activity-card" data-metric="game_started"><h2>Games started</h2><strong>—</strong><small></small></article>
       <article class="panel activity-card" data-metric="game_completed"><h2>Games completed</h2><strong>—</strong><small></small></article>
+      <article class="panel activity-card"><h2>Completion rate</h2><strong id="completion-rate">—</strong><small id="completion-detail"></small></article>
+      <article class="panel activity-card"><h2>Average game length</h2><strong id="average-duration">—</strong><small id="duration-detail"></small></article>
     </div>
-    <section class="panel activity-players">
-      <h2>Recent player entries</h2>
-      <p class="muted">Up to 50 room entries. A player can appear more than once.</p>
-      <div class="activity-table">
-        <table>
-          <thead><tr><th scope="col">Display name</th><th scope="col">Role on entry</th><th scope="col">Joined</th></tr></thead>
-          <tbody id="player-entries"><tr><td colspan="3">Loading…</td></tr></tbody>
-        </table>
+    <section class="panel activity-panel">
+      <div class="activity-panel-heading">
+        <div><h2>Activity over time</h2><p class="muted">Last 14 days · UTC</p></div>
+        <label class="sr-only" for="trend-metric">Activity to chart</label>
+        <select id="trend-metric">
+          <option value="player_joined">Player entries</option>
+          <option value="room_created">Rooms created</option>
+          <option value="game_started">Games started</option>
+          <option value="game_completed">Games completed</option>
+        </select>
       </div>
+      <div id="activity-trend"></div>
     </section>
+    <div class="activity-breakdowns">
+      <section class="panel activity-panel">
+        <h2>Player entries by country</h2>
+        <p class="muted">Based on the country available when someone joins a room.</p>
+        <div id="activity-countries"></div>
+      </section>
+      <section class="panel activity-panel">
+        <h2>Game length</h2>
+        <p class="muted">From game start to the results reveal.</p>
+        <div id="activity-durations"></div>
+      </section>
+      <section class="panel activity-panel">
+        <h2>Group size</h2>
+        <p class="muted">Number of players when the game starts.</p>
+        <div id="activity-sizes"></div>
+      </section>
+      <section class="panel activity-panel">
+        <h2>Optional rounds</h2>
+        <p class="muted">Settings chosen for games that started.</p>
+        <div id="activity-modes"></div>
+      </section>
+    </div>
   </main>
 </body>
 </html>

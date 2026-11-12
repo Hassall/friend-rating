@@ -61,11 +61,12 @@ network address per clock hour and removes expired records as rooms are created.
 ## Site activity
 
 The owner can sign in at `/admin` to see site-wide activity for the last
-30 days. The dashboard updates every 15 seconds while open. It counts room
-creation, player entries, game starts, and games that reach the results
-reveal. It shows recent display names and join times from rooms created
-after tracking was enabled. Set the hosted secret \`FRIEND_RATING_OWNER_EMAIL\`
-to the owner’s ChatGPT sign-in email.
+30 days. The dashboard refreshes every 15 seconds while open and shows totals,
+a 14-day trend, completion rate, and breakdowns by country, game length, group
+size, and optional rounds. The activity API returns aggregates only. New
+activity records do not store display names. Country is recorded when the
+hosting edge supplies it. Set the hosted secret `FRIEND_RATING_OWNER_EMAIL` to
+the owner’s ChatGPT sign-in email.
 
 ## Build
 

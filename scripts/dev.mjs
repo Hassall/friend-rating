@@ -14,6 +14,8 @@ const limits = sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'tabl
 if (!limits) sqlite.exec(await readFile(new URL("../drizzle/0001_room_limits.sql", import.meta.url), "utf8"));
 const activity = sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'site_activity'").get();
 if (!activity) sqlite.exec(await readFile(new URL("../drizzle/0002_site_activity.sql", import.meta.url), "utf8"));
+const groupedActivity = sqlite.prepare("SELECT 1 FROM pragma_table_info('site_activity') WHERE name = 'country'").get();
+if (!groupedActivity) sqlite.exec(await readFile(new URL("../drizzle/0003_grouped_activity.sql", import.meta.url), "utf8"));
 
 const db = {
   prepare(sql) {

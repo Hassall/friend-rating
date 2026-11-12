@@ -55,8 +55,8 @@ function inviteId() {
     .replaceAll("+", "-").replaceAll("/", "_");
 }
 
-function player(name, pass, now) {
-  return { id: randomId(), name, pass, picks: null, seen: now, joinedAt: now };
+function player(name, pass, now, country) {
+  return { id: randomId(), name, pass, picks: null, seen: now, joinedAt: now, country };
 }
 
 function topTraits(room) {
@@ -488,7 +488,7 @@ export function createHandler(db, clock = Date.now, ownerEmail) {
       const data = method === "POST" ? await readBody(request) : {};
       if (create) {
         const now = clock();
-        const host = player(getName(data.name), pass, now);
+        const host = player(getName(data.name), pass, now, requestCountry(request));
         const bucket = Math.floor(now / HOUR_MS);
         const network = await digest(bucket + ":" + (request.headers.get("CF-Connecting-IP") ?? "local"));
         const limit = await db.prepare(
@@ -535,7 +535,7 @@ export function createHandler(db, clock = Date.now, ownerEmail) {
           if (room.players.some((participant) => participant.name.toLowerCase() === name.toLowerCase())) {
             throw new GameError("That name is taken in this room. Try another.", 409);
           }
-          member = player(name, pass, now);
+          member = player(name, pass, now, requestCountry(request));
           room.players.push(member);
           changed = true;
         } else if (!member) {

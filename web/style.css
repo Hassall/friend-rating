@@ -325,14 +325,32 @@ input::placeholder { color: #9484a5; }
 .activity-card h2 { margin: 0 0 8px; font-size: 14px; }
 .activity-card strong { display: block; color: var(--lime); font-size: 29px; font-variant-numeric: tabular-nums; }
 .activity-card small { display: block; color: var(--muted); margin-top: 4px; }
-.activity-players { padding: 16px; margin-top: 16px; }
-.activity-players h2 { margin: 0 0 6px; font-size: 20px; }
-.activity-players p { margin: 0 0 12px; font-size: 13px; }
-.activity-table { overflow-x: auto; }
-.activity-table table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
-.activity-table th, .activity-table td { padding: 9px; border-bottom: 1px solid var(--line); }
-.activity-table th { color: var(--muted); font-size: 12px; }
-.activity-table td:first-child { overflow-wrap: anywhere; }
+.activity-panel { min-width: 0; padding: 16px; margin-top: 16px; }
+.activity-panel h2 { margin: 0 0 5px; font-size: 19px; }
+.activity-panel p { margin: 0; font-size: 13px; }
+.activity-panel-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.activity-panel-heading select { max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; background: #2d203d; color: var(--text); }
+.activity-trend { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 5px; padding: 0; margin: 16px 0 0; list-style: none; }
+.trend-column { min-width: 0; text-align: center; display: grid; gap: 5px; }
+.trend-value, .trend-label { font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.trend-label { color: var(--muted); }
+.trend-track, .breakdown-track { overflow: hidden; border-radius: 5px; background: #342546; }
+.trend-track { height: 78px; display: flex; align-items: end; }
+.trend-bar { display: block; width: 100%; background: var(--violet); }
+.activity-breakdowns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 12px; }
+.activity-breakdown { display: grid; gap: 12px; padding: 0; margin: 14px 0 0; list-style: none; }
+.breakdown-label { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 13px; }
+.breakdown-label strong { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.breakdown-track { height: 6px; margin-top: 5px; }
+.breakdown-track span { display: block; height: 100%; background: var(--violet); }
+.activity-panel .activity-empty { margin-top: 14px; }
+@media (max-width: 640px) {
+  .activity-breakdowns { grid-template-columns: minmax(0, 1fr); }
+  .trend-label { visibility: hidden; }
+  .trend-column:first-child .trend-label, .trend-column:nth-child(7) .trend-label,
+  .trend-column:last-child .trend-label { visibility: visible; }
+  .trend-column:last-child .trend-label { justify-self: end; }
+}
 .locked-traits { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 15px; }
 .locked-traits li { padding: 6px 10px; background: #322548; border-radius: 8px; font-size: 13px; color: #ecdefb; }
 
