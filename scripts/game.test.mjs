@@ -163,12 +163,15 @@ test("prompt battles avoid avoidable self-pairing, hide authors, and count ties 
   assert.ok(state.battleOptions.every(({ won }) => !won));
   setTime(state.deadline);
   state = await room(path, "a");
+  assert.equal(state.phase, "question-intro");
+  setTime(state.deadline);
+  state = await room(path, "a");
   assert.equal(state.phase, "most-likely");
   assert.equal(state.questionCount, 10);
   const prompts = new Set();
   await room(path + "/choose", "a", { phase: state.phase, round: 0, player: host.me });
-  while (state.phase === "most-likely") {
-    prompts.add(state.question);
+  while (["most-likely", "question-intro", "question-result"].includes(state.phase)) {
+    if (state.phase === "most-likely") prompts.add(state.question);
     setTime(state.deadline);
     state = await room(path, "a");
   }
@@ -215,4 +218,75 @@ test("room links open with browser storage blocked, and stale room actions retur
   await runInNewContext('pass = "a".repeat(32); room = { phase: "results" }; send("leave", {}, {})', context);
   assert.equal(location.pathname, "/");
   assert.match(app.innerHTML, /Create a room/);
+});
+
+test("custom trait battles select ten and preserve author points", async (t) => {
+  const {room,open,setTime}=fixture(t);
+  const {path}=await open("a","b","c");
+  let state=await room(path+"/start","a",{custom:true,suggestLimit:20});
+  for(const token of ["a","b","c"]) for(let i=0;i<4;i++) await room(path+"/suggest-trait",token,{name:"Trait "+token+i});
+  for(const token of ["a","b","c"]) state=await room(path+"/ready-traits",token,{ready:true});
+  assert.equal(state.phase,"prompt-battle");
+  assert.equal(state.battleKind,"traits");
+  assert.equal(state.battleCount,6);
+  let wins=0;
+  while(["prompt-battle","prompt-battle-reveal"].includes(state.phase)){
+    if(state.phase==="prompt-battle"){
+      assert.ok(state.battleOptions.every(x=>!Object.hasOwn(x,"author")));
+      const prompt=state.battleOptions[0].id;
+      for(const token of ["a","b","c"]) state=await room(path+"/battle-vote",token,{round:state.round,prompt});
+      wins++;
+      assert.equal(state.phase,"prompt-battle-reveal");
+      assert.equal(state.battleOptions.filter(x=>x.won).length,1);
+    }
+    setTime(state.deadline);state=await room(path,"a");
+  }
+  assert.equal(state.phase,"starting");
+  assert.equal(state.traits.length,10);
+  while(["starting","rating","break"].includes(state.phase)){setTime(state.deadline);state=await room(path,"a");}
+  setTime(state.now+50000);state=await room(path,"a");
+  assert.equal(state.phase,"results");
+  assert.equal(state.suggestionScores.reduce((n,x)=>n+x.traits,0),10);
+  assert.equal(state.suggestionScores.reduce((n,x)=>n+x.battles,0),wins);
+});
+
+test("Most Likely To only has introductions, tied winners, and no empty trait reveals",async(t)=>{
+  const {room,open,setTime}=fixture(t);const {path,host}=await open("a","b");
+  await room(path+"/start","a",{traitRatings:false},400);
+  let state=await room(path+"/start","a",{traitRatings:false,mostLikely:true});
+  assert.equal(state.phase,"question-intro");assert.deepEqual(state.traits,[]);
+  assert.equal(state.deadline-state.now,4000);
+  for(let i=0;i<10;i++){
+    assert.equal(state.phase,"question-intro");assert.equal(state.round,i);
+    setTime(state.deadline);state=await room(path,"a");
+    assert.equal(state.phase,"most-likely");assert.equal(state.deadline-state.now,30000);
+    await room(path+"/choose","a",{phase:state.phase,round:i,player:host.me});
+    const guest=await room(path,"b");
+    state=await room(path+"/choose","b",{phase:state.phase,round:i,player:guest.me});
+    assert.equal(state.phase,"question-result");
+    assert.equal(state.questionResult.winners.length,2);
+    assert.equal(state.deadline-state.now,5000);
+    setTime(state.deadline);state=await room(path,"a");
+  }
+  assert.equal(state.phase,"results");
+  assert.equal(state.mostLikelyResults.length,10);
+});
+
+test("Most Likely To only supports custom questions and guessing",async(t)=>{
+  const {room,open,setTime}=fixture(t);const {path,host}=await open("a","b");
+  let state=await room(path+"/start","a",{traitRatings:false,mostLikely:true,customPrompts:true,guessing:true});
+  assert.equal(state.phase,"prompt-suggestions");
+  await room(path+"/suggest-prompt","a",{name:"bring snacks"});
+  for(const token of ["a","b"])state=await room(path+"/ready-prompts",token,{ready:true});
+  assert.equal(state.phase,"question-intro");
+  while(["question-intro","most-likely","question-result"].includes(state.phase)){
+    if(state.phase==="most-likely") await room(path+"/choose","a",{phase:state.phase,round:state.round,player:host.me});
+    setTime(state.deadline);state=await room(path,"a");
+  }
+  assert.equal(state.phase,"guess-intro");
+  setTime(state.deadline);state=await room(path,"a");
+  assert.equal(state.phase,"guessing");
+  while(state.phase==="guessing"){setTime(state.deadline);state=await room(path,"a");}
+  assert.equal(state.phase,"results");
+  assert.equal(state.suggestionScores.find(x=>x.id===host.me).prompts,1);
 });

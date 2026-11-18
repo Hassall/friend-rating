@@ -18,16 +18,18 @@ database and a simulated clock.
 ## Play
 
 1. Create a room, copy its invite link, and start once everyone has joined.
+   Enable Trait Ratings, Most Likely To, or both. At least one must be enabled.
 2. The host chooses **Default traits** or **Custom traits**. In custom mode,
    each player can suggest up to five traits during a separate timed round.
    The host can set the suggestion timer from 30 seconds to five minutes.
    The group suggestion cap defaults to 10, and the host can raise it to
    15, 20, or 30. The round closes at the deadline or once everyone is done. It treats
    differences in capitalization, punctuation, spacing, and accents as
-   duplicates. If fewer than ten traits were added, default traits fill
-   the remaining spots. With exactly ten traits, the group goes straight
-   to ratings. With more than ten, players vote on which ten to keep.
-   The host also sets how long players have to lock in ten traits. The
+   duplicates. Custom traits face off in random pairs with a 20-second vote
+   and a five-second author reveal. The top ten by battle wins, then votes,
+   then alphabetical order are used. Default traits fill any empty spots.
+   Default traits keep the pick-ten selection. The host sets how long players
+   have to lock in ten default traits. The
    default is two minutes. You can review or unlock
    your picks until the timer expires or everyone locks in. Only locked picks
    count. The ten most popular traits go through, with alphabetical tiebreaks
@@ -47,7 +49,9 @@ database and a simulated clock.
    until the reveal. Each battle winner earns a point; ties with votes
    award a point to both winning prompts. Up to ten custom questions
    advance, ordered by battle wins and then votes. Defaults fill any gaps.
-   Everyone votes for one player per question. **Guess the Winners** asks up to ten
+   Every question has a four-second introduction, then everyone votes for
+   one player. A five-second reveal shows the winning friend or tied winners
+   before the next question. **Guess the Winners** asks up to ten
    questions about the trait results and, when available, the Most Likely To
    votes. A five-second countdown introduces the round. Each correct
    prediction earns one point, and any tied winner counts.
@@ -58,7 +62,7 @@ database and a simulated clock.
    scale. Select a chart to view exact scores. The recap also shows the
    winners of each Most Likely To question and the guessing leaderboard.
    Suggestion points are shown separately: one per selected custom trait,
-   one per selected custom question, and one per prompt battle won.
+   one per selected custom question, and one per trait or question battle won.
 
 The short invite link admits anyone holding it while the lobby is open.
 On the hosted site, is.gd redirects to the public homepage. The browser

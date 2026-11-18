@@ -100,10 +100,9 @@ function avatar(member, size = "") {
 }
 
 function stageNav(step) {
-  const stages = ["Lobby", "Pick traits", "Rate friends"];
-  if (step !== 0 && room?.options?.custom) {
-    const skipPick = room.suggestLimit && (room.suggestLimit === 10 || room.traitPool.length === 10);
-    stages.splice(1, skipPick ? 1 : 0, "Add traits");
+  const stages = room?.options?.traitRatings === false ? ["Lobby"] : ["Lobby", "Pick traits", "Rate friends"];
+  if (step !== 0 && room?.options?.custom && room.options.traitRatings !== false) {
+    stages.splice(1, 1, "Add traits", "Trait battles");
   }
   if (step !== 0 && room?.options?.mostLikely) {
     if (room.options.customPrompts) stages.push("Write questions", "Prompt battles");
@@ -166,13 +165,15 @@ function renderLobby() {
     '<button class="button secondary" id="copy">' + icon("link") + 'Copy invite link</button>' +
     (url !== directUrl ? '<button type="button" class="button compact quiet" id="copy-direct">Copy direct link</button>' : '') +
     '<fieldset id="room-settings" class="room-settings"' + (isHost ? '' : ' disabled') + '><legend>Game settings</legend>' +
-      '<div class="pick-setting"><label for="trait-source">Trait list</label><select id="trait-source" name="custom">' +
+      '<fieldset class="room-options"><legend>Rounds to play</legend><label><input type="checkbox" name="traitRatings" checked>' +
+      '<span>Trait Ratings<small>Rate your friends across 10 traits.</small></span></label></fieldset>' +
+      '<div id="trait-settings"><div class="pick-setting"><label for="trait-source">Trait list</label><select id="trait-source" name="custom">' +
       '<option value="default">Default traits</option><option value="custom">Custom traits</option></select></div>' +
       '<div id="suggest-setting"' + (room.options?.custom ? '' : ' hidden') + '>' +
       timeSetting("suggestSeconds", "Time to add traits", room.suggestSeconds ?? DEFAULT_SUGGEST_SECONDS) +
       numberSetting("suggestLimit", "Group suggestion limit", SUGGEST_LIMIT_OPTIONS, room.suggestLimit ?? DEFAULT_SUGGEST_LIMIT,
         (count) => count + " traits") + '</div>' +
-      '<div id="pick-setting-wrap">' + timeSetting("pickSeconds", "Trait selection time", room.pickSeconds ?? DEFAULT_PICK_SECONDS) + '</div>' +
+      '<div id="pick-setting-wrap">' + timeSetting("pickSeconds", "Trait selection time", room.pickSeconds ?? DEFAULT_PICK_SECONDS) + '</div></div>' +
       '<fieldset class="room-options"><legend>Optional rounds</legend>' +
       '<label><input type="checkbox" name="mostLikely"' + (room.options?.mostLikely ? ' checked' : '') +
       '><span>Most Likely To<small>Vote on which friend fits each question.</small></span></label>' +
@@ -208,6 +209,7 @@ function renderLobby() {
     suggestSeconds: Number(settings.elements.namedItem("suggestSeconds").value),
     suggestLimit: Number(settings.elements.namedItem("suggestLimit").value),
     custom: settings.elements.namedItem("custom").value === "custom",
+    traitRatings: settings.elements.namedItem("traitRatings").checked,
     mostLikely: settings.elements.namedItem("mostLikely").checked,
     customPrompts: settings.elements.namedItem("customPrompts").value === "custom",
     promptSuggestSeconds: Number(settings.elements.namedItem("promptSuggestSeconds").value),
@@ -235,7 +237,9 @@ function syncLobbySettings() {
   settings.elements.namedItem("suggestLimit").value = String(room.suggestLimit ?? DEFAULT_SUGGEST_LIMIT);
   settings.elements.namedItem("custom").value = room.options?.custom ? "custom" : "default";
   settings.querySelector("#suggest-setting").hidden = !room.options?.custom;
-  settings.querySelector("#pick-setting-wrap").hidden = Boolean(room.options?.custom && room.suggestLimit === 10);
+  settings.querySelector("#pick-setting-wrap").hidden = Boolean(room.options?.custom);
+  settings.elements.namedItem("traitRatings").checked = room.options?.traitRatings !== false;
+  settings.querySelector("#trait-settings").hidden = room.options?.traitRatings === false;
   settings.elements.namedItem("mostLikely").checked = Boolean(room.options?.mostLikely);
   settings.elements.namedItem("customPrompts").value = room.options?.customPrompts ? "custom" : "default";
   settings.elements.namedItem("promptSuggestSeconds").value = String(room.promptSuggestSeconds ?? DEFAULT_SUGGEST_SECONDS);
@@ -305,11 +309,7 @@ function syncSuggestions() {
     ? "Each battle win earns 1 point. The top questions make the final 10, and every question that makes it earns another point."
     : groupFull
     ? "The list is full. Remove one of your own suggestions to make room, or choose Done adding."
-    : room.suggestLimit === 10
-      ? "These traits go straight to ratings. Default traits fill any empty spots."
-      : groupCount >= 10
-        ? "If the list has more than 10 traits, the group votes on which ones to keep."
-        : "Default traits fill any empty spots. If you suggest more than 10, the group votes.";
+    : "Traits go head-to-head in battles. The top 10 make the cut; default traits fill any empty spots. Each battle win and selected trait earns 1 point.";
   document.querySelector("#suggest-name").disabled = locked || full;
   document.querySelector("#suggest-add").disabled = locked || full;
   const ready = document.querySelector("#suggest-ready");
@@ -537,17 +537,19 @@ function renderGuessIntro() {
 
 function renderPromptBattle() {
   const reveal = room.phase === "prompt-battle-reveal";
+  const traits = room.battleKind === "traits";
+  const stage = traits ? "Trait battles" : "Prompt battles";
   const locked = room.choice != null;
   const round = room.round;
-  const label = "Prompt battle · " + (round + 1) + " of " + room.battleCount;
+  const label = (traits ? "Trait battle · " : "Prompt battle · ") + (round + 1) + " of " + room.battleCount;
   if (reveal) {
     const winners = room.battleOptions.filter(({ won }) => won);
     const title = winners.length > 1 ? "It’s a tie!" : winners.length === 1
       ? html(room.players.find(({ id }) => id === winners[0].author).name) + " wins the battle!"
       : "No votes this time.";
-    app.innerHTML = stageNav("Prompt battles") + '<section class="panel choice-panel battle-panel battle-reveal">' +
+    app.innerHTML = stageNav(stage) + '<section class="panel choice-panel battle-panel battle-reveal">' +
       '<div class="choice-heading"><div><p class="round-label">' + label + '</p><h1>' + title + '</h1><p>' +
-      (winners.length > 1 ? "Both winning prompts earn a point." : winners.length === 1 ? "+1 point for the winning prompt." : "No points awarded.") +
+      (winners.length > 1 ? "Both suggestions earn a point." : winners.length === 1 ? "+1 point for the winning suggestion." : "No points awarded.") +
       '</p></div><div class="countdown" data-clock="' + room.battleSeconds + '"></div></div><div class="battle-grid">' +
       room.battleOptions.map(({ author, question, votes, won }) => {
         const player = room.players.find(({ id }) => id === author);
@@ -558,13 +560,13 @@ function renderPromptBattle() {
       (room.battleScores.length ? '<div class="battle-scores"><h2>Battle points</h2><ul>' +
         room.battleScores.map(({ id, score }) => '<li>' + html(room.players.find((player) => player.id === id).name) +
           ' <strong>' + score + '</strong></li>').join("") + '</ul></div>' : '') +
-      '<p class="muted battle-next">' + (round + 1 < room.battleCount ? "Next battle coming up…" : "Up next: vote on which friend fits each question.") +
+      '<p class="muted battle-next">' + (round + 1 < room.battleCount ? "Next battle coming up…" : traits ? "Up next: rate your friends using the top traits." : "Up next: vote on which friend fits each question.") +
       '</p></section>';
     return;
   }
-  app.innerHTML = stageNav("Prompt battles") + '<section class="panel choice-panel battle-panel">' +
+  app.innerHTML = stageNav(stage) + '<section class="panel choice-panel battle-panel">' +
     '<div class="choice-heading"><div><p class="round-label">' + label +
-    '</p><h1 id="battle-heading">Which question is better?</h1><p>Pick your favorite. The writers are revealed when voting closes.</p>' +
+    '</p><h1 id="battle-heading">' + (traits ? "Which trait fits your friends better?" : "Which question is better?") + '</h1><p>Pick your favorite. The writers are revealed when voting closes.</p>' +
     '</div><div class="countdown" data-clock="' + room.battleSeconds + '"></div></div>' +
     '<form id="battle-form"><fieldset class="choice-grid battle-grid" aria-labelledby="battle-heading"' + (locked ? ' disabled' : '') + '>' +
     room.battleOptions.map(({ id, question }) => '<label class="battle-card"><input type="radio" name="prompt" value="' + id +
@@ -582,6 +584,25 @@ function renderPromptBattle() {
     if (prompt != null && timeLeft()) send("battle-vote", { round, prompt: Number(prompt) }, lock);
   });
   document.querySelector("#choice-unlock")?.addEventListener("click", (event) => send("unlock-battle", { round }, event.currentTarget));
+}
+
+function renderQuestionTransition() {
+  const result = room.phase === "question-result";
+  const outcome = room.questionResult;
+  app.innerHTML = stageNav("Most likely to") +
+    '<section class="panel centered transition-panel question-transition"><p class="round-label">Most Likely To · ' +
+    (room.round + 1) + ' of ' + room.questionCount + '</p><h1>' +
+    (result ? (outcome.votes ? (outcome.winners.length > 1 ? "It’s a tie!" : "The group has spoken.") : "No votes this time.") : "New question!") +
+    '</h1><h2>' + html(room.question) + '</h2>' +
+    (result ? (outcome.votes ? '<div class="question-winners">' +
+      room.players.filter(({ id }) => outcome.winners.includes(id)).map((player) =>
+        '<div>' + avatar(player, "avatar-large") + '<strong>' + html(player.name) + '</strong></div>').join("") +
+      '</div><p>' + outcome.votes + (outcome.votes === 1 ? " vote" : " votes") +
+      (outcome.winners.length > 1 ? " each" : "") + '</p>' : "") :
+      '<p>Get ready to choose the friend who fits best.</p>') +
+    '<div class="countdown large" data-clock="' + room.transitionSeconds + '"></div><p class="muted">' +
+    (result ? (room.round + 1 < room.questionCount ? "Next question coming up…" : "Results coming up…") : "Voting opens soon") +
+    '</p></section>';
 }
 
 function renderChoice() {
@@ -687,15 +708,15 @@ function renderResults() {
   const max = Math.max(10, Math.ceil(Math.max(...allScores) / 5) * 5);
   const selected = room.players.find(({ id }) => id === resultId);
   app.innerHTML = stageNav(3) + '<div class="page-heading"><div><h1>The group chat verdict.</h1>' +
-    '<p>Explore everyone’s scores and revisit the trait rankings.</p></div>' +
+    '<p>See the group’s results and revisit the highlights.</p></div>' +
     (selected ? '<button class="button secondary compact" type="button" data-everyone>View everyone</button>' : '') +
-    '</div>' + (selected ? playerProfile(selected, max) : allPlayers(max)) +
-    '<section class="panel all-rankings"><div class="panel-heading"><h2>' + icon("trophy") + 'Trait rankings</h2>' +
+    '</div>' + (room.options?.traitRatings === false ? "" : selected ? playerProfile(selected, max) : allPlayers(max)) +
+    (room.options?.traitRatings === false ? "" : '<section class="panel all-rankings"><div class="panel-heading"><h2>' + icon("trophy") + 'Trait rankings</h2>' +
     '<span class="muted ranking-caption">Average points per vote</span></div><div class="ranking-grid">' +
     room.traits.map((id, i) =>
       '<article><h3><span class="row-glyph" aria-hidden="true">' + traitDetails(id)[2] + '</span>' + html(traitDetails(id)[0]) + '</h3>' +
       (room.rankings[i].length ? rankingList(room.rankings[i]) : '<p class="muted">No votes</p>') + '</article>'
-    ).join("") + '</div></section>' + renderExtraResults();
+    ).join("") + '</div></section>') + renderExtraResults();
 }
 
 function winnerNames(ids) {
@@ -716,7 +737,7 @@ function renderExtraResults() {
         '</small></div><span class="rank-average"><strong>' + total + '</strong> pts</span></li>';
     }).join("");
     output += '<section class="panel all-rankings suggestion-results"><div class="panel-heading"><h2>' +
-      icon("trophy") + 'Suggestion points</h2></div><p class="muted">One point for every trait or question that made the cut, plus one per prompt battle won.</p>' +
+      icon("trophy") + 'Suggestion points</h2></div><p class="muted">One point for every trait or question that made the cut, plus one per trait or question battle won.</p>' +
       (ranked ? '<ol class="ranking-list">' + ranked + '</ol>' : '<p>No suggestion points this game.</p>') + '</section>';
   }
   if (room.mostLikelyResults) {
@@ -823,6 +844,7 @@ function renderRoom() {
     const [oldPhase, oldRound] = viewKey.split(":");
     const renderers = {
       lobby: renderLobby, suggestions: renderSuggestions, traits: renderTraits, starting: renderStarting, rating: renderRating,
+      "question-intro": renderQuestionTransition, "question-result": renderQuestionTransition,
       "prompt-suggestions": renderSuggestions, "prompt-battle": renderPromptBattle, "prompt-battle-reveal": renderPromptBattle,
       "most-likely": renderChoice, "guess-intro": renderGuessIntro, guessing: renderChoice,
       break: renderBreak, reveal: renderReveal, results: renderResults,

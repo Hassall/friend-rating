@@ -92,14 +92,14 @@ function customPromptName(value) {
   return name.replace(/^\p{Lu}(?=\p{Ll})/u, (letter) => letter.toLowerCase());
 }
 
-function openTraitVoting(room, at) {
+function openTraitVoting(room, at, selected) {
   const names = new Set(room.customTraits.map(({ name }) => traitKey(name)));
-  room.traitPool = room.customTraits.map((_, i) => CUSTOM_TRAIT_OFFSET + i);
+  room.traitPool = selected ?? room.customTraits.map((_, i) => CUSTOM_TRAIT_OFFSET + i);
   for (const name of DEFAULT_TRAITS) {
     if (room.traitPool.length >= TRAIT_COUNT) break;
     if (!names.has(traitKey(name))) room.traitPool.push(TRAIT_IDS.find((id) => TRAITS[id][0] === name));
   }
-  if (room.suggestLimit && room.traitPool.length === TRAIT_COUNT) {
+  if ((selected || room.suggestLimit) && room.traitPool.length === TRAIT_COUNT) {
     room.traits = topTraits(room);
     room.stage = { phase: "starting", deadline: at + BREAK_MS, next: 0 };
   } else {
@@ -127,7 +127,7 @@ function timeline(room, now) {
     const { revealAt, ...stage } = room.stage;
     if (stage.phase !== "reveal") return stage;
     const ranking = Math.floor((now - revealAt) / REVEAL_MS);
-    return ranking < TRAIT_COUNT
+    return ranking < room.traits.length
       ? { phase: "reveal", ranking, deadline: revealAt + (ranking + 1) * REVEAL_MS }
       : { phase: "results" };
   }
@@ -168,36 +168,55 @@ function promptText(prompt) {
   return "Who’s most likely to " + prompt + "?";
 }
 
-function startMostLikely(room, at) {
-  room.promptCount = 1;
-  room.stage = { phase: "most-likely", round: 0, deadline: at + CHOICE_MS };
+function startMostLikely(room, at, round = 0) {
+  room.promptCount = round + 1;
+  room.stage = { phase: room.roundFlow ? "question-intro" : "most-likely", round,
+    deadline: at + (room.roundFlow ? BREAK_MS : CHOICE_MS) };
+}
+
+function afterRatings(room, at, activeCount) {
+  if (room.options?.mostLikely && activeCount >= 2) {
+    if (room.options.customPrompts) {
+      room.customPrompts = [];
+      room.stage = { phase: "prompt-suggestions", deadline: at + (room.promptSuggestSeconds ?? DEFAULT_SUGGEST_SECONDS) * 1000 };
+    } else startMostLikely(room, at);
+  } else startGuessingOrReveal(room, at, activeCount);
 }
 
 function finishPromptBattles(room, at, activeCount) {
-  if (activeCount < 2) {
+  if (activeCount < 2 && room.battleKind !== "traits") {
     startGuessingOrReveal(room, at, activeCount);
     return;
   }
-  const scores = room.customPrompts.map(({ name }, i) => ({ i, name, wins: 0, votes: 0 }));
+  const items = room.battleKind === "traits" ? room.customTraits : room.customPrompts;
+  const scores = items.map(({ name }, i) => ({ i, name, wins: 0, votes: 0 }));
   for (const result of room.battleResults ?? []) {
     result.options.forEach((id, i) => {
       scores[id].votes += result.counts[i];
       scores[id].wins += Number(result.winners.includes(id));
     });
   }
-  room.selectedPrompts = scores.sort((a, b) => b.wins - a.wins || b.votes - a.votes || a.name.localeCompare(b.name, "en"))
+  const selected = scores.sort((a, b) => b.wins - a.wins || b.votes - a.votes || a.name.localeCompare(b.name, "en"))
     .slice(0, QUESTION_COUNT).map(({ i }) => i);
+  if (room.battleKind === "traits") {
+    room.traitBattleResults = room.battleResults;
+    openTraitVoting(room, at, selected.map((i) => CUSTOM_TRAIT_OFFSET + i));
+    return;
+  }
+  room.selectedPrompts = selected;
   const custom = room.selectedPrompts.map((i) => room.customPrompts[i].name);
   const keys = new Set(custom.map(traitKey));
   room.questions = [...custom, ...sampleQuestions(MOST_LIKELY_PROMPTS.filter((name) => !keys.has(traitKey(name))), QUESTION_COUNT - custom.length)];
   startMostLikely(room, at);
 }
 
-function openPromptBattles(room, at, activeCount) {
-  const ids = sampleQuestions(room.customPrompts.map((_, i) => i), room.customPrompts.length);
+function openPromptBattles(room, at, activeCount, kind = "prompts") {
+  room.battleKind = kind;
+  const items = kind === "traits" ? room.customTraits : room.customPrompts;
+  const ids = sampleQuestions(items.map((_, i) => i), items.length);
   const byAuthor = new Map();
   for (const id of ids) {
-    const { author } = room.customPrompts[id];
+    const { author } = items[id];
     if (!byAuthor.has(author)) byAuthor.set(author, []);
     byAuthor.get(author).push(id);
   }
@@ -210,7 +229,7 @@ function openPromptBattles(room, at, activeCount) {
     pairs.push(Math.random() < .5 ? pair : pair.reverse());
     for (const group of [first, second]) if (group.length) groups.push(group);
   }
-  if (groups[0]?.length >= 2) pairs.push(groups[0].slice(0, 2));
+  while (groups[0]?.length >= 2) pairs.push(groups[0].splice(0, 2));
   room.battlePairs = sampleQuestions(pairs, pairs.length);
   room.battleBallots = {};
   room.battleResults = [];
@@ -238,8 +257,11 @@ function suggestionScores(room) {
     if (id >= CUSTOM_TRAIT_OFFSET) add(room.customTraits[id - CUSTOM_TRAIT_OFFSET].author, "traits");
   }
   for (const id of room.selectedPrompts ?? []) add(room.customPrompts[id].author, "prompts");
+  for (const { winners } of (room.battleKind === "traits" ? [] : room.traitBattleResults ?? [])) {
+    for (const id of winners) add(room.customTraits[id].author, "battles");
+  }
   for (const { winners } of room.battleResults ?? []) {
-    for (const id of winners) add(room.customPrompts[id].author, "battles");
+    for (const id of winners) add((room.battleKind === "traits" ? room.customTraits : room.customPrompts)[id].author, "battles");
   }
   return [...scores.values()].map((score) => ({ ...score, total: score.traits + score.prompts + score.battles }))
     .filter(({ total }) => total > 0).sort((a, b) => b.total - a.total);
@@ -303,7 +325,8 @@ function advance(room, now) {
   while (true) {
     const { phase, deadline, round, next } = room.stage;
     if (phase === "suggestions" && (active.length < 2 || now >= deadline || active.every((member) => member.suggestionsReady))) {
-      openTraitVoting(room, Math.min(now, deadline));
+      if (room.roundFlow) openPromptBattles(room, Math.min(now, deadline), active.length, "traits");
+      else openTraitVoting(room, Math.min(now, deadline));
     } else if (phase === "prompt-suggestions" && (active.length < 2 || now >= deadline || active.every((member) => member.promptsReady))) {
       openPromptBattles(room, Math.min(now, deadline), active.length);
     } else if (phase === "prompt-battle") {
@@ -323,14 +346,7 @@ function advance(room, now) {
     } else if ((phase === "starting" || phase === "break") && now >= deadline) {
       const target = room.players.findIndex((member, index) => index >= next && !member.left);
       if (target < 0 || active.length < 2) {
-        if (room.options?.mostLikely && active.length >= 2) {
-          if (room.options.customPrompts) {
-            room.customPrompts = [];
-            room.stage = { phase: "prompt-suggestions", deadline: deadline + (room.promptSuggestSeconds ?? DEFAULT_SUGGEST_SECONDS) * 1000 };
-          } else startMostLikely(room, deadline);
-        } else {
-          startGuessingOrReveal(room, deadline, active.length);
-        }
+        afterRatings(room, deadline, active.length);
       } else {
         room.stage = { phase: "rating", round: target, deadline: deadline + (room.roundMs ?? LEGACY_ROUND_MS) };
       }
@@ -341,6 +357,12 @@ function advance(room, now) {
       const nextRound = room.players.findIndex((member, index) => index > round && !member.left);
       room.stage = { phase: "break", deadline: Math.min(now, deadline) + BREAK_MS,
         next: nextRound >= 0 && active.length >= 2 ? nextRound : room.players.length };
+    } else if (phase === "question-intro" && (now >= deadline || active.length < 2)) {
+      if (active.length < 2) startGuessingOrReveal(room, Math.min(now, deadline), active.length);
+      else room.stage = { phase: "most-likely", round, deadline: deadline + CHOICE_MS };
+    } else if (phase === "question-result" && (now >= deadline || active.length < 2)) {
+      if (round + 1 < room.questions.length && active.length >= 2) startMostLikely(room, deadline, round + 1);
+      else startGuessingOrReveal(room, Math.min(now, deadline), active.length);
     } else if (phase === "guess-intro" && (now >= deadline || active.length < 2)) {
       if (active.length < 2) {
         startReveal(room, Math.min(now, deadline));
@@ -353,6 +375,11 @@ function advance(room, now) {
         return changed;
       }
       const at = Math.min(now, deadline);
+      if (phase === "most-likely" && room.roundFlow) {
+        room.stage = { phase: "question-result", round, deadline: at + REVEAL_MS };
+        changed = true;
+        continue;
+      }
       const total = phase === "most-likely" ? room.questions.length : room.predictions.length;
       if (round + 1 < total && active.length >= 2) {
         if (phase === "most-likely") room.promptCount = round + 2;
@@ -451,11 +478,12 @@ function snapshot(room, member, now, revision) {
     const reveal = time.phase === "prompt-battle-reveal";
     const result = reveal ? room.battleResults[time.round] : null;
     const ballots = room.battleBallots[time.round] ?? {};
+    view.battleKind = room.battleKind ?? "prompts";
     view.battleCount = room.battlePairs.length;
     view.battleSeconds = (reveal ? BATTLE_REVEAL_MS : BATTLE_MS) / 1000;
     view.battleOptions = room.battlePairs[time.round].map((id, i) => {
-      const { name, author } = room.customPrompts[id];
-      return { id, question: promptText(name), ...(reveal ? { author, votes: result.counts[i], won: result.winners.includes(id) } : {}) };
+      const { name, author } = (room.battleKind === "traits" ? room.customTraits : room.customPrompts)[id];
+      return { id, question: room.battleKind === "traits" ? name : promptText(name), ...(reveal ? { author, votes: result.counts[i], won: result.winners.includes(id) } : {}) };
     });
     if (reveal) view.battleScores = suggestionScores(room).filter(({ battles }) => battles > 0)
       .map(({ id, battles }) => ({ id, score: battles })).sort((a, b) => b.score - a.score);
@@ -483,6 +511,12 @@ function snapshot(room, member, now, revision) {
     view.choice = ballots[member.id] ?? null;
     view.eligibleCount = eligible.length;
     view.voteCount = eligible.filter(({ id }) => Object.hasOwn(ballots, id)).length;
+  }
+  if (time.phase === "question-intro" || time.phase === "question-result") {
+    view.question = promptText(room.questions[time.round]);
+    view.questionCount = room.questions.length;
+    view.transitionSeconds = (time.phase === "question-intro" ? BREAK_MS : REVEAL_MS) / 1000;
+    if (time.phase === "question-result") view.questionResult = promptResults(room)[time.round];
   }
   if (time.phase === "guess-intro") {
     view.questionCount = room.predictions.length;
@@ -522,7 +556,7 @@ function updateSettings(room, data) {
     room.suggestLimit = data.suggestLimit;
   }
   room.options ??= { mostLikely: false, guessing: false };
-  for (const option of ["mostLikely", "guessing", "custom", "customPrompts"]) {
+  for (const option of ["mostLikely", "guessing", "custom", "customPrompts", "traitRatings"]) {
     if (Object.hasOwn(data, option)) {
       if (typeof data[option] !== "boolean") throw new GameError("Choose an available game setting.");
       room.options[option] = data[option];
@@ -533,7 +567,7 @@ function updateSettings(room, data) {
 function applyAction(room, member, action, data, now) {
   const { phase, round } = timeline(room, now);
   if (action === "leave") {
-    if (phase === "lobby" || phase === "suggestions" || phase === "traits") room.players = room.players.filter((player) => player !== member);
+    if (phase === "lobby" || (phase === "traits" && !room.customTraits)) room.players = room.players.filter((player) => player !== member);
     else member.left = true;
     if (currentHost(room) === member.id) room.host = activePlayers(room)[0]?.id;
     if (phase === "rating") delete (room.votes[round] ?? {})[member.id];
@@ -550,6 +584,8 @@ function applyAction(room, member, action, data, now) {
     updateSettings(room, data);
     if (action === "settings") return true;
     if (room.players.length < 2) throw new GameError("Invite at least one friend first.");
+    if (room.options.traitRatings === false && !room.options.mostLikely) throw new GameError("Enable Trait Ratings or Most Likely To.");
+    room.roundFlow = true;
     room.started = true;
     room.startedAt = now;
     room.roundMs = RATING_SECONDS * 1000;
@@ -570,6 +606,14 @@ function applyAction(room, member, action, data, now) {
     const promptMs = promptBattles ? (room.promptSuggestSeconds ?? DEFAULT_SUGGEST_SECONDS) * 1000 +
       Math.floor(room.players.length * CUSTOM_PROMPT_LIMIT / 2) * (BATTLE_MS + BATTLE_REVEAL_MS) : 0;
     room.expiresAt = now + GAME_LIFETIME_MS + suggestionMs + promptMs + extraRounds * QUESTION_COUNT * CHOICE_MS;
+    room.expiresAt += (room.options.custom && room.options.traitRatings !== false
+      ? Math.floor(Math.min(room.suggestLimit, room.players.length * CUSTOM_TRAIT_LIMIT) / 2) * (BATTLE_MS + BATTLE_REVEAL_MS) : 0)
+      + (room.options.mostLikely ? QUESTION_COUNT * (BREAK_MS + REVEAL_MS) : 0);
+    if (room.options.traitRatings === false) {
+      room.traits = [];
+      delete room.customTraits;
+      afterRatings(room, now, room.players.length);
+    }
     return true;
   }
 
